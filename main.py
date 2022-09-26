@@ -1,7 +1,8 @@
 # Inspired by: https://www.debuggingbook.org/beta/html/DeltaDebugger.html#Reducing-Failure-Inducing-Inputs
-from ast import iter_child_nodes, parse, unparse, operator, Name, NodeTransformer, NodeVisitor, AST
+from ast import BinOp, Constant, iter_child_nodes, parse, unparse, operator, Name, NodeTransformer, NodeVisitor, AST
 from collections import deque
 import copy
+from itertools import zip_longest
 from typing import Any
 
 class NodeCollector(NodeVisitor):
@@ -85,18 +86,74 @@ def copy_and_reduce(tree: AST, keep_list: list[AST]) -> AST:
     NodeReducer().visit(new_tree)
     return new_tree
 
-if __name__ == "__main__":
-    tree = parse("1 + (2 + 3)")
-    nodes = NodeCollector().collect(tree)
+def dfs(t1, t2, del_list = []):
+    if (type(t1) is not type(t2)):
+        del_list.append(t1)
+        return
 
-    # Ex: Remove level 1 of root (nodes[2]).
-    subtreeGen = SubtreeGeneration(nodes[2])
-    subtreeGen.collect_subtrees()
-    subtrees = subtreeGen.subtrees
-    for x in subtrees[nodes[2]][0]:
-        nodes.remove(x)
+    if isinstance(t1, AST):
+        if (isinstance(t1, BinOp) and isinstance(t2, BinOp)) and (t1.op != t2.op):
+            del_list.append(t1)
+            return
+        if (isinstance(t1, Constant) and isinstance(t2, Constant)) and (t1.value != t2.value):
+            del_list.append(t1)
+            return 
+        if (isinstance(t1, Name) and isinstance(t2, Name)) and (t1.id != t2.id):
+            del_list.append(t1)
+            return 
+        for k, v in vars(t1).items():
+            if k in {"lineno", "end_lineno", "col_offset", "end_col_offset", "ctx"}:
+                continue
+            dfs(v, getattr(t2, k))   
+    
+    if isinstance(t1, list) and isinstance(t2, list):
+        for n1, n2 in zip_longest(t1, t2):
+            dfs(n1, n2)
+
+    return del_list
+
+
+if __name__ == "__main__":
+    # tree = parse("1 + (2 + (1 + 0))")
+    # tree2 = parse("1 + (2 + (1 + 1))")
+
+    # tree = parse("str.split(sep)['a']")
+    # tree2 = parse("str.split('-')['a']")
+
+    # tree = parse("hello.split(sep)[0]")
+    # tree2 = parse("str.split('a')[1]")
+
+    tree = parse("str[0]")
+    tree2 = parse("str[1:3]")
+
+
+    print("For: ", unparse(tree), " AND ", unparse(tree2))
+    del_list = dfs(tree, tree2)
+    nodes = NodeCollector().collect(tree)
+    # print("Length: ", len(nodes))
+    for node in nodes: 
+        if node in del_list:
+            nodes.remove(node)
+    # print("Length: ", len(nodes))
     new_tree = copy_and_reduce(tree, nodes)
     print(unparse(new_tree))
+
+
+    
+
+    # Ex: Remove level 1 of root (nodes[2]).
+    # nodes = NodeCollector().collect(tree)
+    # subtreeGen = SubtreeGeneration(nodes[2])
+    # subtreeGen.collect_subtrees()
+    # subtrees = subtreeGen.subtrees
+    # for x in subtrees[nodes[2]][0]:
+    #     nodes.remove(x)
+    # new_tree = copy_and_reduce(tree, nodes)
+    # print(unparse(new_tree))
+
+
+
+    
 
     # Ex: Remove --> ? + (2 + 3)
     # nodes.remove(nodes[3])
