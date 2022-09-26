@@ -86,7 +86,7 @@ def copy_and_reduce(tree: AST, keep_list: list[AST]) -> AST:
     NodeReducer().visit(new_tree)
     return new_tree
 
-def dfs(t1, t2, del_list = []):
+def compare_trees(t1, t2, del_list = []):
     if (type(t1) is not type(t2)):
         del_list.append(t1)
         return
@@ -104,11 +104,11 @@ def dfs(t1, t2, del_list = []):
         for k, v in vars(t1).items():
             if k in {"lineno", "end_lineno", "col_offset", "end_col_offset", "ctx"}:
                 continue
-            dfs(v, getattr(t2, k))   
+            compare_trees(v, getattr(t2, k))   
     
     if isinstance(t1, list) and isinstance(t2, list):
         for n1, n2 in zip_longest(t1, t2):
-            dfs(n1, n2)
+            compare_trees(n1, n2)
 
     return del_list
 
@@ -128,7 +128,7 @@ if __name__ == "__main__":
 
 
     print("For: ", unparse(tree), " AND ", unparse(tree2))
-    del_list = dfs(tree, tree2)
+    del_list = compare_trees(tree, tree2)
     nodes = NodeCollector().collect(tree)
     # print("Length: ", len(nodes))
     for node in nodes: 
