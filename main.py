@@ -43,7 +43,7 @@ class NodeReducer(NodeTransformer):
 class PatternGeneration:
     def __init__(self, node: AST) -> None:
         self.cur_root = node
-        self.match_table = {}
+        self.subtrees = {}
 
     def get_subtrees(self) -> list[AST]:
         todo = deque([(self.cur_root, 0)])
@@ -54,17 +54,17 @@ class PatternGeneration:
                 if (not isinstance(child, operator) and (child not in visited)):
                     visited.append(child)
                     todo.append((child, level + 1))
-                    self.match_table[self.cur_root][level].append(child)
+                    self.subtrees[self.cur_root][level].append(child)
    
     def generate_patterns(self):
         depth = self.depth(self.cur_root) - 1
-        self.match_table[self.cur_root] = [[] for _ in range(depth)] 
+        self.subtrees[self.cur_root] = [[] for _ in range(depth)] 
         self.get_subtrees()
 
-    def pprint_match_table(self):
-            for node in self.match_table:
+    def pprint_subtrees(self):
+            for node in self.subtrees:
                 print("KEY: ", node)
-                for idx, child in enumerate(self.match_table[node]):
+                for idx, child in enumerate(self.subtrees[node]):
                     print(idx, child)
 
     def depth(self, node):
@@ -91,8 +91,8 @@ if __name__ == "__main__":
     # Ex: Remove level 1 of root (nodes[2]).
     patternGen = PatternGeneration(nodes[2])
     patternGen.generate_patterns()
-    match_table = patternGen.match_table
-    for x in match_table[nodes[2]][1]:
+    subtrees = patternGen.subtrees
+    for x in subtrees[nodes[2]][1]:
         nodes.remove(x)
     new_tree = copy_and_reduce(tree, nodes)
     print(unparse(new_tree))
