@@ -40,12 +40,12 @@ class NodeReducer(NodeTransformer):
             return hole
         return super().generic_visit(node)
 
-class PatternGeneration:
+class SubtreeGeneration:
     def __init__(self, node: AST) -> None:
         self.cur_root = node
         self.subtrees = {}
 
-    def get_subtrees(self) -> list[AST]:
+    def collect_subtrees_util(self) -> list[AST]:
         todo = deque([(self.cur_root, 0)])
         visited = [self.cur_root]
         while todo:
@@ -56,10 +56,11 @@ class PatternGeneration:
                     todo.append((child, level + 1))
                     self.subtrees[self.cur_root][level].append(child)
    
-    def generate_patterns(self):
+    def collect_subtrees(self):
         depth = self.depth(self.cur_root) - 1
         self.subtrees[self.cur_root] = [[] for _ in range(depth)] 
-        self.get_subtrees()
+        self.collect_subtrees_util()
+        return self.subtrees
 
     def pprint_subtrees(self):
             for node in self.subtrees:
@@ -89,10 +90,10 @@ if __name__ == "__main__":
     nodes = NodeCollector().collect(tree)
 
     # Ex: Remove level 1 of root (nodes[2]).
-    patternGen = PatternGeneration(nodes[2])
-    patternGen.generate_patterns()
-    subtrees = patternGen.subtrees
-    for x in subtrees[nodes[2]][1]:
+    subtreeGen = SubtreeGeneration(nodes[2])
+    subtreeGen.collect_subtrees()
+    subtrees = subtreeGen.subtrees
+    for x in subtrees[nodes[2]][0]:
         nodes.remove(x)
     new_tree = copy_and_reduce(tree, nodes)
     print(unparse(new_tree))
