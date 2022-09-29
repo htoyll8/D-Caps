@@ -82,7 +82,7 @@ class SubtreeGeneration:
                    default = 0)
 
 def copy_and_reduce(tree: AST, keep_list: list[AST]) -> AST:
-    """ Copy tren & reduce nodes not in the keep_list. """
+    """ Copy & reduce nodes not in the keep_list. """
 
     # Mark every node not in keep_list.
     NodeMarker().visit(tree)
@@ -133,21 +133,41 @@ def unify(head, rest):
     return copy_and_reduce(head, nodes)
 
 def generate_partitions(trees):
-    upper_bound = 1
-    for L in range(2, len(trees) + 1):
+    match_table = {}
+    print("Length: ", len(trees))
+
+    # for L in range(2, len(trees) + 1):
+    for L in range(2, 3):
         print(L)
         for subset in itertools.combinations(trees, L):
             # print("Unifying... ", unparse(subset[0]), list(map(lambda t: unparse(t), subset[1:])))
-            new_tree = unify(subset[0], list(subset[1:]))
-            print(unparse(new_tree), " for ", unparse(subset[0]), list(map(lambda t: unparse(t), subset[1:])))
+            new_tree = unparse(unify(subset[0], list(subset[1:])))
+            if new_tree not in match_table: 
+                # print("Adding... ", new_tree)
+                match_table[new_tree] = []
+            match_table[new_tree].append(subset)
+            # print(unparse(new_tree), " for ", unparse(subset[0]), list(map(lambda t: unparse(t), subset[1:])))
+    return match_table
+
+def read_file(file_name):
+    with open(file_name) as f:
+        return [parse(line.strip()) for line in f.readlines()]
+
 
 if __name__ == "__main__":
-    trees = [
-        parse("str.split(sep)[0]"),
-        parse("str.split('-')[0]"),
-        parse("string.split(lo[4])[0]"),
-        parse("str.split(lo[1])[0]")
-    ]
+    # trees = [
+    #     parse("str.split(sep)[0]"),
+    #     parse("str.split(sep)[1]"),
+    #     parse("str.split('-')[0]"),
+    #     parse("string.split(lo[4])[0]"),
+    #     parse("str[0:3]"),
+    #     parse("str.split(lo[1])[0]")
+    # ]
 
-    generate_partitions(trees)
+    # match_table = generate_partitions(trees)
+    
+    trees = read_file("input-file.txt")
+    match_table = generate_partitions(trees)
+    for k in match_table.keys():
+        print(k)
     
