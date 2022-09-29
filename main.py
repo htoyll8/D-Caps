@@ -86,30 +86,35 @@ def copy_and_reduce(tree: AST, keep_list: list[AST]) -> AST:
     NodeReducer().visit(new_tree)
     return new_tree
 
-def compare_trees(t1, t2, del_list = []):
-    if (type(t1) is not type(t2)):
-        del_list.append(t1)
+
+def compare_trees(head, rest, del_list = []): 
+    # All of the list element types are the same. 
+    if not all(isinstance(t, type(head)) for t in rest):
+        print("Types mismatch!", unparse(head), list(rest))
+        del_list.append(head)
         return
 
-    if isinstance(t1, AST):
-        if (isinstance(t1, BinOp) and isinstance(t2, BinOp)) and (t1.op != t2.op):
-            del_list.append(t1)
+    if isinstance(head, AST):
+        if (isinstance(head, BinOp) and all(isinstance(t, BinOp) for t in rest)) and (not all((t.op == head.op) for t in rest)):
+            del_list.append(head)
             return
-        if (isinstance(t1, Constant) and isinstance(t2, Constant)) and (t1.value != t2.value):
-            del_list.append(t1)
-            return 
-        if (isinstance(t1, Name) and isinstance(t2, Name)) and (t1.id != t2.id):
-            del_list.append(t1)
-            return 
-        for k, v in vars(t1).items():
+        if (isinstance(head, Constant) and all(isinstance(t, Constant) for t in rest)) and (not all((t.value == head.value) for t in rest)):
+            del_list.append(head)
+            return
+        if (isinstance(head, Name) and all(isinstance(t, Name) for t in rest)) and (not all((t.id == head.id) for t in rest)):
+            del_list.append(head)
+            return
+        for k, v in vars(head).items():
             if k in {"lineno", "end_lineno", "col_offset", "end_col_offset", "ctx"}:
                 continue
-            compare_trees(v, getattr(t2, k))   
+            # print("K: ", k, " V: ", v, head, rest, new_rest)
+            compare_trees(v, list(map(lambda t: getattr(t, k), rest)))
+        
+    if isinstance(head, list) and all(isinstance(t, list) for t in rest):
+        for tups in zip_longest(head, *rest):
+            # print("Tups: ", tups, tups[0], list(tups[1:]))
+            compare_trees(tups[0], list(tups[1:]))
     
-    if isinstance(t1, list) and isinstance(t2, list):
-        for n1, n2 in zip_longest(t1, t2):
-            compare_trees(n1, n2)
-
     return del_list
 
 
@@ -123,20 +128,42 @@ if __name__ == "__main__":
     # tree = parse("hello.split(sep)[0]")
     # tree2 = parse("str.split('a')[1]")
 
-    tree = parse("str[0]")
-    tree2 = parse("str[1:3]")
+    # tree = parse("str[0]")
+    # tree2 = parse("str[1:3]")
 
+    tree = parse("str.split(sep)[0]")
+    tree2 = parse("str.split('-')[0]")
+    tree3 = parse("string.split(str[4])[0]")
+    tree4 = parse("str.split(sep)[0]")
 
-    print("For: ", unparse(tree), " AND ", unparse(tree2))
-    del_list = compare_trees(tree, tree2)
+    # tree = parse("1 + 2")
+    # tree2 = parse("(1 + 2) + 2")
+    # tree3 = parse("(1 + 3) + 2")
+    # tree4 = parse("0 + 2")
+
+    del_list = compare_trees(tree, [tree2, tree3, tree4])
     nodes = NodeCollector().collect(tree)
-    # print("Length: ", len(nodes))
     for node in nodes: 
         if node in del_list:
             nodes.remove(node)
-    # print("Length: ", len(nodes))
     new_tree = copy_and_reduce(tree, nodes)
+
+    print("For: ", unparse(tree), unparse(tree2), unparse(tree3), unparse(tree4))
     print(unparse(new_tree))
+
+    # del_list = compare_trees(tree, tree2)
+    # print("For: ", unparse(tree), " AND ", unparse(tree2))
+    # nodes = NodeCollector().collect(tree)
+    # print(del_list)
+    # print(nodes)
+    # print("Length: ", len(nodes))
+    # for node in nodes: 
+    #     if node in del_list:
+    #         print("Removing: ", node)
+    #         nodes.remove(node)
+    # print("Length: ", len(nodes))
+    # new_tree = copy_and_reduce(tree, nodes)
+    # print(unparse(new_tree))
 
 
     
@@ -151,9 +178,6 @@ if __name__ == "__main__":
     # new_tree = copy_and_reduce(tree, nodes)
     # print(unparse(new_tree))
 
-
-
-    
 
     # Ex: Remove --> ? + (2 + 3)
     # nodes.remove(nodes[3])
