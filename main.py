@@ -3,7 +3,10 @@ from ast import BinOp, Constant, iter_child_nodes, parse, unparse, operator, Nam
 from collections import deque
 import copy
 from itertools import zip_longest
+import itertools
 from typing import Any
+
+from sklearn import tree
 
 class NodeCollector(NodeVisitor):
     def __init__(self) -> None:
@@ -23,6 +26,11 @@ class NodeCollector(NodeVisitor):
 class NodeMarker(NodeVisitor):
     def visit(self, node: AST) -> AST:
         node.marked = True
+        return super().generic_visit(node)
+
+class NodeUnmarker(NodeVisitor):
+    def visit(self, node: AST) -> AST:
+        node.marked = False
         return super().generic_visit(node)
 
 class NodeReducer(NodeTransformer):
@@ -86,100 +94,60 @@ def copy_and_reduce(tree: AST, keep_list: list[AST]) -> AST:
     NodeReducer().visit(new_tree)
     return new_tree
 
-
 def compare_trees(head, rest, del_list = []): 
     # All of the list element types are the same. 
     if not all(isinstance(t, type(head)) for t in rest):
-        print("Types mismatch!", unparse(head), list(rest))
+        # print("Types mismatch!", unparse(head), list(rest))
         del_list.append(head)
-        return
+        return 
 
     if isinstance(head, AST):
         if (isinstance(head, BinOp) and all(isinstance(t, BinOp) for t in rest)) and (not all((t.op == head.op) for t in rest)):
             del_list.append(head)
-            return
+            return 
         if (isinstance(head, Constant) and all(isinstance(t, Constant) for t in rest)) and (not all((t.value == head.value) for t in rest)):
             del_list.append(head)
-            return
+            return 
         if (isinstance(head, Name) and all(isinstance(t, Name) for t in rest)) and (not all((t.id == head.id) for t in rest)):
             del_list.append(head)
-            return
+            return 
         for k, v in vars(head).items():
-            if k in {"lineno", "end_lineno", "col_offset", "end_col_offset", "ctx"}:
+            if k in {"lineno", "end_lineno", "col_offset", "end_col_offset", "ctx", "marked"}:
                 continue
             # print("K: ", k, " V: ", v, head, rest, new_rest)
-            compare_trees(v, list(map(lambda t: getattr(t, k), rest)))
+            compare_trees(v, list(map(lambda t: getattr(t, k), rest)), del_list)
         
     if isinstance(head, list) and all(isinstance(t, list) for t in rest):
         for tups in zip_longest(head, *rest):
             # print("Tups: ", tups, tups[0], list(tups[1:]))
-            compare_trees(tups[0], list(tups[1:]))
+            compare_trees(tups[0], list(tups[1:]), del_list)
     
     return del_list
 
-
-if __name__ == "__main__":
-    # tree = parse("1 + (2 + (1 + 0))")
-    # tree2 = parse("1 + (2 + (1 + 1))")
-
-    # tree = parse("str.split(sep)['a']")
-    # tree2 = parse("str.split('-')['a']")
-
-    # tree = parse("hello.split(sep)[0]")
-    # tree2 = parse("str.split('a')[1]")
-
-    # tree = parse("str[0]")
-    # tree2 = parse("str[1:3]")
-
-    tree = parse("str.split(sep)[0]")
-    tree2 = parse("str.split('-')[0]")
-    tree3 = parse("string.split(str[4])[0]")
-    tree4 = parse("str.split(sep)[0]")
-
-    # tree = parse("1 + 2")
-    # tree2 = parse("(1 + 2) + 2")
-    # tree3 = parse("(1 + 3) + 2")
-    # tree4 = parse("0 + 2")
-
-    del_list = compare_trees(tree, [tree2, tree3, tree4])
-    nodes = NodeCollector().collect(tree)
+def unify(head, rest):
+    del_list = compare_trees(head, rest, [])  
+    nodes = NodeCollector().collect(head)
     for node in nodes: 
         if node in del_list:
             nodes.remove(node)
-    new_tree = copy_and_reduce(tree, nodes)
+    return copy_and_reduce(head, nodes)
 
-    print("For: ", unparse(tree), unparse(tree2), unparse(tree3), unparse(tree4))
-    print(unparse(new_tree))
+def generate_partitions(trees):
+    upper_bound = 1
+    for L in range(2, len(trees) + 1):
+        print(L)
+        for subset in itertools.combinations(trees, L):
+            # print("Unifying... ", unparse(subset[0]), list(map(lambda t: unparse(t), subset[1:])))
+            new_tree = unify(subset[0], list(subset[1:]))
+            print(unparse(new_tree), " for ", unparse(subset[0]), list(map(lambda t: unparse(t), subset[1:])))
 
-    # del_list = compare_trees(tree, tree2)
-    # print("For: ", unparse(tree), " AND ", unparse(tree2))
-    # nodes = NodeCollector().collect(tree)
-    # print(del_list)
-    # print(nodes)
-    # print("Length: ", len(nodes))
-    # for node in nodes: 
-    #     if node in del_list:
-    #         print("Removing: ", node)
-    #         nodes.remove(node)
-    # print("Length: ", len(nodes))
-    # new_tree = copy_and_reduce(tree, nodes)
-    # print(unparse(new_tree))
+if __name__ == "__main__":
+    trees = [
+        parse("str.split(sep)[0]"),
+        parse("str.split('-')[0]"),
+        parse("string.split(lo[4])[0]"),
+        parse("str.split(lo[1])[0]")
+    ]
 
-
+    generate_partitions(trees)
     
-
-    # Ex: Remove level 1 of root (nodes[2]).
-    # nodes = NodeCollector().collect(tree)
-    # subtreeGen = SubtreeGeneration(nodes[2])
-    # subtreeGen.collect_subtrees()
-    # subtrees = subtreeGen.subtrees
-    # for x in subtrees[nodes[2]][0]:
-    #     nodes.remove(x)
-    # new_tree = copy_and_reduce(tree, nodes)
-    # print(unparse(new_tree))
-
-
-    # Ex: Remove --> ? + (2 + 3)
-    # nodes.remove(nodes[3])
-    # empty_tree = copy_and_reduce(tree, nodes)
-    # print(unparse(empty_tree))
