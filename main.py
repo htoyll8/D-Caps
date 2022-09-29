@@ -4,9 +4,7 @@ from collections import deque
 import copy
 from itertools import zip_longest
 import itertools
-from typing import Any
-
-from sklearn import tree
+from typing import Any, List
 
 class NodeCollector(NodeVisitor):
     def __init__(self) -> None:
@@ -65,19 +63,19 @@ class SubtreeGeneration:
                     todo.append((child, level + 1))
                     self.subtrees[self.cur_root][level].append(child)
    
-    def collect_subtrees(self):
+    def collect_subtrees(self) -> list[list[AST]]:
         depth = self.depth(self.cur_root) - 1
         self.subtrees[self.cur_root] = [[] for _ in range(depth)] 
         self.collect_subtrees_util()
         return self.subtrees
 
-    def pprint_subtrees(self):
+    def pprint_subtrees(self) -> None:
             for node in self.subtrees:
                 print("KEY: ", node)
                 for idx, child in enumerate(self.subtrees[node]):
                     print(idx, child)
 
-    def depth(self, node):
+    def depth(self, node) -> int:
         return 1 + max(map(self.depth, iter_child_nodes(node)),
                    default = 0)
 
@@ -94,7 +92,7 @@ def copy_and_reduce(tree: AST, keep_list: list[AST]) -> AST:
     NodeReducer().visit(new_tree)
     return new_tree
 
-def compare_trees(head, rest, del_list = []): 
+def compare_trees(head: AST, rest: list[AST], del_list: list[AST] = []) -> list[AST]: 
     # All of the list element types are the same. 
     if not all(isinstance(t, type(head)) for t in rest):
         # print("Types mismatch!", unparse(head), list(rest))
@@ -124,7 +122,7 @@ def compare_trees(head, rest, del_list = []):
     
     return del_list
 
-def unify(head, rest):
+def unify(head: AST, rest: list[AST]) -> list[AST]:
     del_list = compare_trees(head, rest, [])  
     nodes = NodeCollector().collect(head)
     for node in nodes: 
@@ -132,9 +130,10 @@ def unify(head, rest):
             nodes.remove(node)
     return copy_and_reduce(head, nodes)
 
-def generate_partitions(trees):
+def generate_partitions(trees: list[AST]) -> dict:
     match_table = {}
-    print("Length: ", len(trees))
+    upper_bound = unparse(unify(trees[0], list(trees[1:])))
+    print("Upper bound: ", upper_bound)
 
     # for L in range(2, len(trees) + 1):
     for L in range(2, 3):
@@ -149,7 +148,7 @@ def generate_partitions(trees):
             # print(unparse(new_tree), " for ", unparse(subset[0]), list(map(lambda t: unparse(t), subset[1:])))
     return match_table
 
-def read_file(file_name):
+def read_file(file_name) -> list[AST]:
     with open(file_name) as f:
         return [parse(line.strip()) for line in f.readlines()]
 
