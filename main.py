@@ -1,10 +1,7 @@
 import ast
-from email.policy import strict
 from itertools import zip_longest, combinations, groupby
 from typing import Any
 import copy
-
-from matplotlib.pyplot import hist
 
 class TreeCollector(ast.NodeVisitor):
     def __init__(self) -> None:
@@ -45,48 +42,32 @@ class TreeGeneralizer(ast.NodeTransformer):
         return super().generic_visit(node)
 
 
-def partition_trees(t):
+def group_trees_by_type(trees):
     typed_lists = {}
-    for e in t:
-        typed_lists.setdefault(type(e), []).append(e)
-    typed_lists = [x for x in typed_lists.values()]
-    # print("Typed lists: ", typed_lists)
-    # for t in typed_lists:
-    #     print(type(t[0]))
-    hole_options = {}
+    for tree in trees:
+        # Parse body. 
+        body: ast.AST = tree.body[0]
+        if (isinstance(body, ast.Expr)):
+            print("Found expression!", body.__dict__['value'])
+            expr = body.__dict__['value']
+        
+            if (isinstance(expr, ast.BinOp)):
+                typed_lists.setdefault(ast.BinOp, []).append(tree) 
+            elif (isinstance(expr, ast.Index)):
+                typed_lists.setdefault(ast.Index, []).append(tree) 
+            elif (isinstance(expr, ast.Slice)):
+                typed_lists.setdefault(ast.Slice, []).append(tree) 
+            elif (isinstance(expr, ast.Subscript)):
+                typed_lists.setdefault(ast.Subscript, []).append(tree)
+            elif (isinstance(expr, ast.Call)):
+                if (isinstance(expr.func, ast.Attribute)):
+                    typed_lists.setdefault(expr.func.attr, []).append(tree) 
+                else: 
+                    typed_lists.setdefault(ast.Call, []).append(tree) 
+        else: 
+            typed_lists.setdefault(type(tree), []).append(tree)
+    return typed_lists
 
-    for l in typed_lists:
-        if (len(l) > 1):
-            for c in combinations(l, 2):
-                del_dict = compare_trees(c[0], c[1:], {})
-                # print("C: ", c, del_dict)
-                if (c[0] in del_dict.keys()):
-                    for x in c:
-                        prog_str = ast.unparse(x)
-                        if (prog_str not in hole_options):
-                            hole_options[prog_str] = set()
-                        hole_options[prog_str].add(x)
-                else:
-                    TreeMarker().visit(c[0])
-                    for node in TreeCollector().collect(c[0]):
-                        if node in del_dict.keys():
-                            node.marked = True
-                    tree_copy = copy.deepcopy(c[0])
-                    TreeGeneralizer().visit(tree_copy)
-                    prog_str = ast.unparse(tree_copy)
-                    if (prog_str not in hole_options):
-                        hole_options[prog_str] = set()
-                    hole_options[prog_str].update(c)
-        elif len(l) == 1: 
-            # Only element... add to hole options. 
-            prog_str = ast.unparse(l[0])
-            if (prog_str not in hole_options):
-                hole_options[prog_str] = set()
-            hole_options[prog_str].add(l[0])
-    
-    # print("Hole options: ", hole_options)
-    return hole_options
-       
 
 def compare_trees(head: ast.AST, rest: list[ast.AST], del_dict: dict[ast.AST, list[ast.AST]]):
     # print("Comparing... ", head, rest)
@@ -117,44 +98,28 @@ def compare_trees(head: ast.AST, rest: list[ast.AST], del_dict: dict[ast.AST, li
 
     # Return statement. 
     return del_dict
-        
 
-def expand_sketch(partitions, history):
-    print("Reverse Sketch Options: ")
-    for x in partitions:
-        print(x)
-    print("\n")
+def main(trees):
+    sketches = []
+    grouped_trees_dict = group_trees_by_type(trees)
+    for _, group_items in grouped_trees_dict.items():
+        if (len(group_items) == 1):
+            sketches.append(group_items[0])
+        else: 
+            del_dict = compare_trees(group_items[0], group_items[1:], {})
+            print(del_dict)
+    for sketch in sketches:
+        print(ast.unparse(sketch))
 
-    i = int(input("Choose reverse sketch between 1 and %d: " % len(partitions)))
-    k = list(partitions.keys())[i-1]
-    t = list(partitions[k])
-    history.append(k)
-
-    del_dict = compare_trees(t[0], t[1:], {})
-    if (not del_dict):
-        return history
-    hole_i = int(input("Choose hole for ?? between 1 and %d: " % len(del_dict)))
-    # print("Idx: ", hole_i, len(del_dict))
-    hole_k = list(del_dict.keys())[hole_i-1]
-    hole_t = list(del_dict[hole_k])
-    hole_t.append(hole_k)
-    partitions = partition_trees(hole_t)
-    return expand_sketch(partitions, history)
-
-
-def main(t):
-    partitions = partition_trees(t)
-    history = expand_sketch(partitions, [])
-    print("\nFinal: ", history)
-        
-        
 if __name__ == "__main__":
     trees = [
         ast.parse("str.split(sep)[0]"),
         ast.parse("str.split(sep)[1]"),
         ast.parse("str.split('-')[0]"),
         ast.parse("str.split(lo[4])[0]"),
-        ast.parse("str.split(lo[1])[0]")
+        ast.parse("str.split(lo[1])[0]"),
+        ast.parse("str.split(lo[1])"),
+        ast.parse("1 + 1")
     ]
 
     main(trees)
