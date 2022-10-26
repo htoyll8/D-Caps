@@ -2,11 +2,13 @@ import ast
 from audioop import reverse
 import json
 from itertools import zip_longest, combinations
+from operator import le
 import string
 from tokenize import String, group
 from typing import Any
 import copy
 from flask import Flask, render_template
+from sklearn.metrics import precision_recall_curve
 
 app = Flask(__name__)
 
@@ -94,7 +96,7 @@ def compare_trees(head: ast.AST, rest: list[ast.AST], del_dict: dict[ast.AST, li
 
         if (isinstance(head, ast.Subscript) and (isinstance(t, ast.Subscript) for t in rest)):
             if type(head.__dict__['slice']) == ast.Slice and any(type(t.__dict__['slice']) != ast.Slice for t in rest):
-                print("Slice mismatch! ", ast.unparse(head), head)
+                # print("Slice mismatch! ", ast.unparse(head), head)
                 del_dict[head] = rest
                 return del_dict
 
@@ -128,31 +130,17 @@ def trees_uppper_bound_util(trees):
     del_dict = compare_trees(head, rest, {})
     return generalize_tree(head, del_dict)
 
-# def main(trees):
-#     grouped_trees_dict = group_trees_by_type(trees)
-#     upper_bound_dict = []
-#     for _, group_items in grouped_trees_dict.items():
-#         upper_bound = trees_uppper_bound_util(group_items)
-#         tree_upper_bound_dict = {}
-#         tree_upper_bound_dict['name'] = upper_bound
-#         tree_upper_bound_dict['children'] = list(map(lambda x: {'name': ast.unparse(x)}, group_items))
-#         upper_bound_dict.append(tree_upper_bound_dict)
-#     json_object = json.dumps(upper_bound_dict, indent=4)
-#     with open("sample.json", "w") as outfile:
-#         outfile.write(json_object)
-#     return upper_bound_dict
-
 def tree_upper_bound(trees): 
     sketch_dict = {}
     # Generate highest-level JSON.
     grouped_trees_dict = group_trees_by_type(trees)
-    print("Groups: ", grouped_trees_dict.keys())
+    # print("Groups: ", grouped_trees_dict.keys())
     for _, group_items in grouped_trees_dict.items():
         upper_bound = trees_uppper_bound_util(group_items)
         sketch_dict.setdefault(upper_bound, group_items)
     return sketch_dict
 
-def generate_json(trees):
+def partition_trees(trees):
     sketch_dict: dict[String, list[ast.AST]] = {}
     upper_bound_trees = trees_uppper_bound_util(trees)
     in_dict = set()
@@ -164,11 +152,49 @@ def generate_json(trees):
             in_dict.update(tree_pair)
     return sketch_dict, in_dict
 
-def generate_json_obj(k, v):
-    return {
-        'name': k,
-        'children': v
-    }
+def generate_json_util(obj_key, obj_values, seen):
+    new_obj = {}
+    new_obj['name'] = obj_key
+    for t in obj_values:
+        seen.append(t)
+        if t not in obj.keys():
+            new_obj.setdefault('children', []).append({ 'name': t })
+        else: 
+            # print("Jsonify... ", t, obj[t])
+            new_obj.setdefault('children', []).append(generate_json_util(t, obj[t], seen))
+    return new_obj
+
+def generate_json(obj):
+    count = 0
+    seen = []
+    for k,v in obj.items():
+        if k not in seen:
+            toJson = generate_json_util(k, v, seen)
+            with open(f"sample_{count}.json", "w") as outfile:
+                json.dump(toJson, outfile)
+            count += 1
+
+def pretty_print(obj, cur_obj, level, seen):
+    if level == 5:
+        return 
+
+    for k,v in cur_obj.items():
+        # print("Seen: ", seen, k)
+        if k not in seen:
+            seen.append(k)
+            if (level == 1):
+                print(k)
+            else: 
+                print("\t"*level, k)
+        for t in v:
+            if (t not in seen) or (t in seen and level > 2):
+                seen.append(t)
+                if (t not in obj.keys()):
+                    print("\t"*level, t)
+                else: 
+                    print("\t"*level, t)
+                    pretty_print(obj, {t: obj[t]}, level+1, seen)
+                    # print("\t\t", level+1, {t: obj[t]})
 
 def read_file(file_name) -> list[ast.AST]:
     with open(file_name) as f:
@@ -208,32 +234,21 @@ if __name__ == "__main__":
     # for k in del_dict.keys():
     #     print(ast.unparse(k))
 
+    # trees = read_file('input-file.txt')
     obj = {}
     reverse_sketches = tree_upper_bound(trees)
     print(reverse_sketches.keys())
     for _ in range(2):
         for group_key in list(reverse_sketches):
-            print("Group key: ", group_key)
+            # print("Group key: ", group_key)
             group_items = reverse_sketches[group_key]
-            new_sketches, in_dict = generate_json(group_items)
+            new_sketches, in_dict = partition_trees(group_items)
             leaf_nodes = list(filter(lambda x: x not in in_dict, group_items))
             leaf_sketches = list(map(lambda x: ast.unparse(x), leaf_nodes))
             obj.setdefault(group_key, set()).update(new_sketches)
             obj.setdefault(group_key, set()).update(leaf_sketches)
             new_sketches = {key:list(value) for (key,value) in new_sketches.items()}
             reverse_sketches.update(new_sketches)
-    for k,v in obj.items():
-        print(k)
-        for t in v: 
-            print("\t", t)
-        
-    
-    # new_sketches = {}
-    # for group_key in list(reverse_sketches):
-    #     new_sketches = generate_json(reverse_sketches[group_key])
-    #     print(new_sketches.items())
-    #     # reverse_sketches[group_key].extend(new_sketches)
-    #     reverse_sketches.update(new_sketches)
-    # for sketch in reverse_sketches:
-    #     # sketch_list = list(map(lambda x: ast.unparse(x), reverse_sketches[sketch]))
-    #     print(sketch)
+
+    # pretty_print(obj, obj, 1, [])       
+    generate_json(obj)     
