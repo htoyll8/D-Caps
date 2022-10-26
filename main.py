@@ -75,20 +75,20 @@ def group_trees_by_type(trees):
     return typed_lists
 
 def compare_trees(head: ast.AST, rest: list[ast.AST], del_dict: dict[ast.AST, list[ast.AST]]):
-    print("Comparing... ", head, rest)
+    # print("Comparing... ", head, rest)
     if not all(isinstance(t, type(head)) for t in rest):
-        print("Mismatch! ", ast.unparse(head))
+        # print("Mismatch! ", ast.unparse(head))
         del_dict[head] = rest
         return del_dict
 
     if isinstance(head, ast.AST):
         if (isinstance(head, ast.Name) and any(isinstance(t, ast.Name) and (t.id != head.id) for t in rest)):
-            print("Name mismatch! ", ast.unparse(head), head)
+            # print("Name mismatch! ", ast.unparse(head), head)
             del_dict[head] = rest
             return del_dict
 
         if (isinstance(head, ast.Constant) and any(isinstance(t, ast.Constant) and (t.value != head.value) for t in rest)):
-            print("Constant mismatch! ", ast.unparse(head), head)
+            # print("Constant mismatch! ", ast.unparse(head), head)
             del_dict[head] = rest
             return del_dict
 
@@ -110,7 +110,6 @@ def compare_trees(head: ast.AST, rest: list[ast.AST], del_dict: dict[ast.AST, li
             compare_trees(tups[0], list(tups[1:]), del_dict)
 
     # Return statement. 
-    print("Del Dictionary... ", del_dict)
     return del_dict
 
 def generalize_tree(tree, del_dict):
@@ -124,9 +123,10 @@ def generalize_tree(tree, del_dict):
     return ast.unparse(head_tree_copy)
 
 def trees_uppper_bound_util(trees):
-    sketch_dict = {}
-    del_dict = compare_trees(trees[0], trees[1:], {})
-    return generalize_tree(trees[0], del_dict)
+    head = trees[0]
+    rest = list(trees[1:])
+    del_dict = compare_trees(head, rest, {})
+    return generalize_tree(head, del_dict)
 
 # def main(trees):
 #     grouped_trees_dict = group_trees_by_type(trees)
@@ -155,12 +155,14 @@ def tree_upper_bound(trees):
 def generate_json(trees):
     sketch_dict: dict[String, list[ast.AST]] = {}
     upper_bound_trees = trees_uppper_bound_util(trees)
+    in_dict = set()
     for tree_pair in combinations(trees, 2):
         # print("Upper bounding... ", list(map(lambda x: ast.unparse(x), tree_pair)), upper_bound)
         upper_bound = trees_uppper_bound_util(tree_pair)
         if (upper_bound != upper_bound_trees):
             sketch_dict.setdefault(upper_bound, set()).update(tree_pair)
-    return sketch_dict
+            in_dict.update(tree_pair)
+    return sketch_dict, in_dict
 
 def generate_json_obj(k, v):
     return {
@@ -209,11 +211,17 @@ if __name__ == "__main__":
     obj = {}
     reverse_sketches = tree_upper_bound(trees)
     print(reverse_sketches.keys())
-    for _ in range(5):
+    for _ in range(2):
         for group_key in list(reverse_sketches):
             print("Group key: ", group_key)
-            new_sketches = generate_json(reverse_sketches[group_key])
+            group_items = reverse_sketches[group_key]
+            new_sketches, in_dict = generate_json(group_items)
+            leaf_nodes = list(filter(lambda x: x not in in_dict, group_items))
+            leaf_sketches = list(map(lambda x: ast.unparse(x), leaf_nodes))
             obj.setdefault(group_key, set()).update(new_sketches)
+            obj.setdefault(group_key, set()).update(leaf_sketches)
+            new_sketches = {key:list(value) for (key,value) in new_sketches.items()}
+            reverse_sketches.update(new_sketches)
     for k,v in obj.items():
         print(k)
         for t in v: 
