@@ -1,17 +1,8 @@
 import ast
-from audioop import reverse
-import json
 from itertools import zip_longest, combinations
-from logging import root
-from operator import le
-from re import L, X
-import string
-from tokenize import String, group
 from typing import Any
 import copy
 from flask import Flask, render_template
-from sklearn import tree
-from sklearn.metrics import precision_recall_curve
 
 app = Flask(__name__)
 
@@ -131,9 +122,22 @@ def trees_uppper_bound_util(trees):
     head = trees[0]
     rest = list(trees[1:])
     del_dict = compare_trees(head, rest, {})
+    # Compute hole options. 
+    holes = []
     for k,v in del_dict.items():
-        print(ast.unparse(k), list(map(lambda x: ast.unparse(x), v)))
-    return generalize_tree(head, del_dict)
+        options = list(map(lambda x: ast.unparse(x), v))
+        options.insert(0, ast.unparse(k)) 
+        holes.append(options)
+    # Zip hole options with trees: 
+    # Convert list of tuples into a dictionary.
+    holes_option_dict = {}
+    for idx, options in enumerate(holes):
+        option_dict = {}
+        option_tups = list(zip(options, trees))
+        for k, v in option_tups:
+            option_dict.setdefault(k, []).append(v)
+        holes_option_dict.setdefault(idx, option_dict)
+    return generalize_tree(head, del_dict), holes_option_dict
 
 def tree_upper_bound(trees): 
     sketch_dict = {}
@@ -141,9 +145,9 @@ def tree_upper_bound(trees):
     grouped_trees_dict = group_trees_by_type(trees)
     # print("Groups: ", grouped_trees_dict.keys())
     for _, group_items in grouped_trees_dict.items():
-        upper_bound = trees_uppper_bound_util(group_items)
+        upper_bound, hole_options = trees_uppper_bound_util(group_items)
         sketch_dict.setdefault(upper_bound, group_items)
-    return sketch_dict
+    return sketch_dict, hole_options
 
 def partition_trees(trees):
     sketch_dict: dict[String, list[ast.AST]] = {}
@@ -156,87 +160,6 @@ def partition_trees(trees):
             sketch_dict.setdefault(upper_bound, set()).update(tree_pair)
             in_dict.update(tree_pair)
     return sketch_dict, in_dict
-
-def generate_json_util(obj_key, obj_values, seen):
-    new_obj = {}
-    new_obj['name'] = obj_key
-    for t in obj_values:
-        if t not in seen: 
-            seen.append(t)
-            if t not in obj.keys():
-                new_obj.setdefault('children', []).append({ 'name': t })
-            else: 
-                new_obj.setdefault('children', []).append(generate_json_util(t, obj[t], seen))
-    for k,v in new_obj.items():
-        print(k, v)
-    print("\n\n")
-    return new_obj
-
-def generate_json(obj):
-    count = 0
-    seen = []
-    for k,v in obj.items():
-        if k not in seen:
-            toJson = generate_json_util(k, v, seen)
-            with open(f"sample_{count}.json", "w") as outfile:
-                json.dump(toJson, outfile)
-            count += 1
-
-def prettier(obj):
-    # < node, node_parents >
-    child_of = {obj_key: [] for obj_key, _ in obj.items()}
-    for key in list(child_of):
-        for parent_key, parent_items in obj.items():
-            if key in parent_items: 
-                child_of[key].append(parent_key) 
-    print(child_of)
-
-    # Retrieve root sketch. 
-    root_sketches = {k:v for k,v in child_of.items() if len(v) == 0}
-    for sketch in root_sketches:
-        parent = {sketch: {}}
-        prettier_util(sketch, parent, child_of, [])
-
-
-def prettier_util(parent_key, parent_dict, child_of, prev_parents): 
-    print("Parent: ", parent_dict)
-    # Any children that are only a child of parent. 
-    print(f"Any nodes that are only a child of {parent_key}")
-    # children = {k for k,v in child_of.items() if len(v) == 1 and parent_key in v}
-    
-    children = []
-    for k,v in child_of.items():
-        filtered_v = list(filter(lambda x: x not in prev_parents, v))
-        if (len(filtered_v) == 1 and parent_key in filtered_v):
-            children.append(k)
-    print("Children: ", children)
-
-    # Add current parent to memory of parents.
-    prev_parents.append(parent_key)
-    for child in list(children):
-        new_parent_key = child
-        new_parent_dict = prettier_util(new_parent_key, {new_parent_key: {}}, child_of, prev_parents)
-        parent_dict[parent_key].update(new_parent_dict)
-    return parent_dict
-
-def pretty_print(obj, cur_obj, level, seen):
-    for k,v in cur_obj.items():
-        # print("Seen: ", seen, k)
-        if k not in seen:
-            seen.append(k)
-            if (level == 1):
-                print(k)
-            else: 
-                print("\t"*level, k)
-        for t in v:
-            if (t not in seen) or (t in seen and level > 2):
-                seen.append(t)
-                if (t not in obj.keys()):
-                    print("\t"*level, t)
-                else: 
-                    print("\t"*level, t)
-                    pretty_print(obj, {t: obj[t]}, level+1, seen)
-                    # print("\t\t", level+1, {t: obj[t]})
 
 def read_file(file_name) -> list[ast.AST]:
     with open(file_name) as f:
@@ -295,7 +218,7 @@ if __name__ == "__main__":
     # pretty_print2(obj, obj, 1, [])       
     # generate_json(obj)     
 
-    upper_bound_dict = tree_upper_bound(trees)
+    upper_bound_dict, hole_options = tree_upper_bound(trees)
     for k in upper_bound_dict:
         print("K: ", k)
 
