@@ -3,6 +3,7 @@ from audioop import reverse
 import json
 from itertools import zip_longest, combinations
 from operator import le
+from re import L
 import string
 from tokenize import String, group
 from typing import Any
@@ -145,8 +146,8 @@ def partition_trees(trees):
     upper_bound_trees = trees_uppper_bound_util(trees)
     in_dict = set()
     for tree_pair in combinations(trees, 2):
-        # print("Upper bounding... ", list(map(lambda x: ast.unparse(x), tree_pair)), upper_bound)
         upper_bound = trees_uppper_bound_util(tree_pair)
+        print("Upper bounding... ", list(map(lambda x: ast.unparse(x), tree_pair)), upper_bound)
         if (upper_bound != upper_bound_trees):
             sketch_dict.setdefault(upper_bound, set()).update(tree_pair)
             in_dict.update(tree_pair)
@@ -156,12 +157,15 @@ def generate_json_util(obj_key, obj_values, seen):
     new_obj = {}
     new_obj['name'] = obj_key
     for t in obj_values:
-        seen.append(t)
-        if t not in obj.keys():
-            new_obj.setdefault('children', []).append({ 'name': t })
-        else: 
-            # print("Jsonify... ", t, obj[t])
-            new_obj.setdefault('children', []).append(generate_json_util(t, obj[t], seen))
+        if t not in seen: 
+            seen.append(t)
+            if t not in obj.keys():
+                new_obj.setdefault('children', []).append({ 'name': t })
+            else: 
+                new_obj.setdefault('children', []).append(generate_json_util(t, obj[t], seen))
+    for k,v in new_obj.items():
+        print(k, v)
+    print("\n\n")
     return new_obj
 
 def generate_json(obj):
@@ -227,13 +231,10 @@ if __name__ == "__main__":
         ast.parse("str.split(sep)[lo[1]]"),
         ast.parse("str.split(sep)[lo[2]]")
     ]
-    
-
     # del_dict = compare_trees(ast.parse("str.split(sep)[lo[1]]"), [ast.parse("str.split(sep)[1]")], {})
     # print(del_dict)
     # for k in del_dict.keys():
     #     print(ast.unparse(k))
-
     # trees = read_file('input-file.txt')
     obj = {}
     reverse_sketches = tree_upper_bound(trees)
@@ -249,6 +250,5 @@ if __name__ == "__main__":
             obj.setdefault(group_key, set()).update(leaf_sketches)
             new_sketches = {key:list(value) for (key,value) in new_sketches.items()}
             reverse_sketches.update(new_sketches)
-
-    # pretty_print(obj, obj, 1, [])       
-    generate_json(obj)     
+    pretty_print(obj, obj, 1, [])       
+    # generate_json(obj)     
