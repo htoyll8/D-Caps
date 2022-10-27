@@ -130,36 +130,27 @@ def trees_uppper_bound_util(trees):
         holes.append(options)
     # Zip hole options with trees: 
     # Convert list of tuples into a dictionary.
-    holes_option_dict = {}
+    mem = {}
     for idx, options in enumerate(holes):
         option_dict = {}
         option_tups = list(zip(options, trees))
         for k, v in option_tups:
             option_dict.setdefault(k, []).append(v)
-        holes_option_dict.setdefault(idx, option_dict)
-    return generalize_tree(head, del_dict), holes_option_dict
+        mem.setdefault(f"num_{idx}", {}).update(option_dict)
+    # print("Holes... ", mem)
+    return generalize_tree(head, del_dict), mem
 
 def tree_upper_bound(trees): 
     sketch_dict = {}
     # Generate highest-level JSON.
     grouped_trees_dict = group_trees_by_type(trees)
     # print("Groups: ", grouped_trees_dict.keys())
+    hole_options = {}
     for _, group_items in grouped_trees_dict.items():
-        upper_bound, hole_options = trees_uppper_bound_util(group_items)
+        upper_bound, option = trees_uppper_bound_util(group_items)
+        hole_options.setdefault(upper_bound, option)
         sketch_dict.setdefault(upper_bound, group_items)
     return sketch_dict, hole_options
-
-def partition_trees(trees):
-    sketch_dict: dict[String, list[ast.AST]] = {}
-    upper_bound_trees = trees_uppper_bound_util(trees)
-    in_dict = set()
-    for tree_pair in combinations(trees, 2):
-        upper_bound = trees_uppper_bound_util(tree_pair)
-        print("Upper bounding... ", list(map(lambda x: ast.unparse(x), tree_pair)), upper_bound)
-        if (upper_bound != upper_bound_trees):
-            sketch_dict.setdefault(upper_bound, set()).update(tree_pair)
-            in_dict.update(tree_pair)
-    return sketch_dict, in_dict
 
 def read_file(file_name) -> list[ast.AST]:
     with open(file_name) as f:
@@ -186,39 +177,36 @@ if __name__ == "__main__":
         ast.parse("str[2:1]"),
         ast.parse("str.split(sep)[1:3]"),
         ast.parse("str.split(sep)[1:2]"),
-        # ast.parse("str.split(sep)[0]"),
-        # ast.parse("str.split(sep)[1]"),
-        # ast.parse("str.split(sep)[2]"),
-        # ast.parse("str.split(sep)[lo[1]]"),
-        # ast.parse("str.split(sep)[lo[2]]")
+        ast.parse("str.split(sep)[0]"),
+        ast.parse("str.split(sep)[1]"),
+        ast.parse("str.split(sep)[2]"),
+        ast.parse("str.split(sep)[lo[1]]"),
+        ast.parse("str.split(sep)[lo[2]]")
     ]
-    # del_dict = compare_trees(ast.parse("str.split(sep)[lo[1]]"), [ast.parse("str.split(sep)[1]")], {})
-    # print(del_dict)
-    # for k in del_dict.keys():
-    #     print(ast.unparse(k))
-    # trees = read_file('input-file.txt')
-    # obj = {}
-    # reverse_sketches = tree_upper_bound(trees)
-    # print(reverse_sketches.keys())
-    # for _ in range(2):
-    #     for group_key in list(reverse_sketches):
-    #         # print("Group key: ", group_key)
-    #         group_items = reverse_sketches[group_key]
-    #         new_sketches, in_dict = partition_trees(group_items)
-    #         leaf_nodes = list(filter(lambda x: x not in in_dict, group_items))
-    #         leaf_sketches = list(map(lambda x: ast.unparse(x), leaf_nodes))
-    #         obj.setdefault(group_key, set()).update(new_sketches)
-    #         obj.setdefault(group_key, set()).update(leaf_sketches)
-    #         new_sketches = {key:list(value) for (key,value) in new_sketches.items()}
-    #         reverse_sketches.update(new_sketches)
-    
-    # for k, v in obj.items():
-    #     print(k, v)
-    # prettier(obj)
-    # pretty_print2(obj, obj, 1, [])       
-    # generate_json(obj)     
 
     upper_bound_dict, hole_options = tree_upper_bound(trees)
-    for k in upper_bound_dict:
-        print("K: ", k)
+    picked_holes = {}
+    k = 'str.split(sep)[?]'
+    must_include = []
+    holes_count = len(hole_options[k])
+    while len(picked_holes) < holes_count:
+        cur_holes = hole_options[k]
+        hole_number = input(f"Holes [{holes_count} options]")
+        picked_hole_options = cur_holes[f"num_{hole_number}"]
+        for picked_hole_key, picked_hole_values in picked_hole_options.items():
+            if (len(must_include)):
+                if any(x in picked_hole_values for x in must_include):
+                    print("Option: ", picked_hole_key)
+                # print(list(map(lambda x: ast.unparse(x), picked_hole_values)))
+            else:
+                print("Option: ", picked_hole_key)  
+        choice = input("Choice? ")
+        picked_holes.setdefault(f"num_{hole_number}", choice)
+        must_include = picked_hole_options[choice]
+        # print("Must include: ", list(map(lambda x: ast.unparse(x), must_include)))
+    print(picked_holes)
+
+
+        
+   
 
