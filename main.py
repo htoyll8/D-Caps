@@ -2,13 +2,15 @@ import ast
 from audioop import reverse
 import json
 from itertools import zip_longest, combinations
+from logging import root
 from operator import le
-from re import L
+from re import L, X
 import string
 from tokenize import String, group
 from typing import Any
 import copy
 from flask import Flask, render_template
+from sklearn import tree
 from sklearn.metrics import precision_recall_curve
 
 app = Flask(__name__)
@@ -78,7 +80,7 @@ def group_trees_by_type(trees):
     return typed_lists
 
 def compare_trees(head: ast.AST, rest: list[ast.AST], del_dict: dict[ast.AST, list[ast.AST]]):
-    # print("Comparing... ", head, rest)
+    # print("Comparing... ", ast.unparse(head), list(map(lambda x: ast.unparse(x), rest)))
     if not all(isinstance(t, type(head)) for t in rest):
         # print("Mismatch! ", ast.unparse(head))
         del_dict[head] = rest
@@ -129,6 +131,8 @@ def trees_uppper_bound_util(trees):
     head = trees[0]
     rest = list(trees[1:])
     del_dict = compare_trees(head, rest, {})
+    for k,v in del_dict.items():
+        print(ast.unparse(k), list(map(lambda x: ast.unparse(x), v)))
     return generalize_tree(head, del_dict)
 
 def tree_upper_bound(trees): 
@@ -178,10 +182,44 @@ def generate_json(obj):
                 json.dump(toJson, outfile)
             count += 1
 
-def pretty_print(obj, cur_obj, level, seen):
-    if level == 5:
-        return 
+def prettier(obj):
+    # < node, node_parents >
+    child_of = {obj_key: [] for obj_key, _ in obj.items()}
+    for key in list(child_of):
+        for parent_key, parent_items in obj.items():
+            if key in parent_items: 
+                child_of[key].append(parent_key) 
+    print(child_of)
 
+    # Retrieve root sketch. 
+    root_sketches = {k:v for k,v in child_of.items() if len(v) == 0}
+    for sketch in root_sketches:
+        parent = {sketch: {}}
+        prettier_util(sketch, parent, child_of, [])
+
+
+def prettier_util(parent_key, parent_dict, child_of, prev_parents): 
+    print("Parent: ", parent_dict)
+    # Any children that are only a child of parent. 
+    print(f"Any nodes that are only a child of {parent_key}")
+    # children = {k for k,v in child_of.items() if len(v) == 1 and parent_key in v}
+    
+    children = []
+    for k,v in child_of.items():
+        filtered_v = list(filter(lambda x: x not in prev_parents, v))
+        if (len(filtered_v) == 1 and parent_key in filtered_v):
+            children.append(k)
+    print("Children: ", children)
+
+    # Add current parent to memory of parents.
+    prev_parents.append(parent_key)
+    for child in list(children):
+        new_parent_key = child
+        new_parent_dict = prettier_util(new_parent_key, {new_parent_key: {}}, child_of, prev_parents)
+        parent_dict[parent_key].update(new_parent_dict)
+    return parent_dict
+
+def pretty_print(obj, cur_obj, level, seen):
     for k,v in cur_obj.items():
         # print("Seen: ", seen, k)
         if k not in seen:
@@ -225,30 +263,39 @@ if __name__ == "__main__":
         ast.parse("str[2:1]"),
         ast.parse("str.split(sep)[1:3]"),
         ast.parse("str.split(sep)[1:2]"),
-        ast.parse("str.split(sep)[0]"),
-        ast.parse("str.split(sep)[1]"),
-        ast.parse("str.split(sep)[2]"),
-        ast.parse("str.split(sep)[lo[1]]"),
-        ast.parse("str.split(sep)[lo[2]]")
+        # ast.parse("str.split(sep)[0]"),
+        # ast.parse("str.split(sep)[1]"),
+        # ast.parse("str.split(sep)[2]"),
+        # ast.parse("str.split(sep)[lo[1]]"),
+        # ast.parse("str.split(sep)[lo[2]]")
     ]
     # del_dict = compare_trees(ast.parse("str.split(sep)[lo[1]]"), [ast.parse("str.split(sep)[1]")], {})
     # print(del_dict)
     # for k in del_dict.keys():
     #     print(ast.unparse(k))
     # trees = read_file('input-file.txt')
-    obj = {}
-    reverse_sketches = tree_upper_bound(trees)
-    print(reverse_sketches.keys())
-    for _ in range(2):
-        for group_key in list(reverse_sketches):
-            # print("Group key: ", group_key)
-            group_items = reverse_sketches[group_key]
-            new_sketches, in_dict = partition_trees(group_items)
-            leaf_nodes = list(filter(lambda x: x not in in_dict, group_items))
-            leaf_sketches = list(map(lambda x: ast.unparse(x), leaf_nodes))
-            obj.setdefault(group_key, set()).update(new_sketches)
-            obj.setdefault(group_key, set()).update(leaf_sketches)
-            new_sketches = {key:list(value) for (key,value) in new_sketches.items()}
-            reverse_sketches.update(new_sketches)
-    pretty_print(obj, obj, 1, [])       
+    # obj = {}
+    # reverse_sketches = tree_upper_bound(trees)
+    # print(reverse_sketches.keys())
+    # for _ in range(2):
+    #     for group_key in list(reverse_sketches):
+    #         # print("Group key: ", group_key)
+    #         group_items = reverse_sketches[group_key]
+    #         new_sketches, in_dict = partition_trees(group_items)
+    #         leaf_nodes = list(filter(lambda x: x not in in_dict, group_items))
+    #         leaf_sketches = list(map(lambda x: ast.unparse(x), leaf_nodes))
+    #         obj.setdefault(group_key, set()).update(new_sketches)
+    #         obj.setdefault(group_key, set()).update(leaf_sketches)
+    #         new_sketches = {key:list(value) for (key,value) in new_sketches.items()}
+    #         reverse_sketches.update(new_sketches)
+    
+    # for k, v in obj.items():
+    #     print(k, v)
+    # prettier(obj)
+    # pretty_print2(obj, obj, 1, [])       
     # generate_json(obj)     
+
+    upper_bound_dict = tree_upper_bound(trees)
+    for k in upper_bound_dict:
+        print("K: ", k)
+
