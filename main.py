@@ -129,7 +129,6 @@ def trees_uppper_bound_util(trees):
     for k,v in del_dict.items():
         options = list(map(lambda x: ast.unparse(x), v))
         options.insert(0, ast.unparse(k))
-        # print("Options: ", options)
         holes.append(options)
     # Zip hole options with trees: 
     # Convert list of tuples into a dictionary.
@@ -138,26 +137,24 @@ def trees_uppper_bound_util(trees):
         option_dict = {}
         option_tups = list(zip(options, trees))
         for k, v in option_tups:
-            # print("Tup: ", k, ast.unparse(v))
             option_dict.setdefault(k, []).append(v)
         mem.setdefault(f"num_{idx}", {}).update(option_dict)
-    
     # Generalize holes.
-    for hole_num,hole_options in mem.items():
-        print(hole_num)
-        print("OPTIONS: ", hole_options)
-        for c in combinations(hole_options.values(), 2):
-            c_list = list(c)
-            make_head = c_list[0][0]
-            make_head_remainder = c_list[0][1:]
-            make_rest = c_list[1:][0]
+    upper_bound, _ = generalize_tree(head, del_dict), mem
+    print("Upper bound: ", upper_bound)
+    for mem_key in list(mem):
+        hole_options = mem[mem_key]
+        for c in combinations(hole_options.keys(), 2):
+            values = list(map(lambda x: hole_options[x], c))
+            make_head = values[0][0]
+            make_head_remainder = values[0][1:]
+            make_rest = values[1:][0]
             make_rest.extend(make_head_remainder)
-            print("Head: ", make_head)
-            print("Rest: ", make_rest)
+            # String representation. 
             make_del_dict = compare_trees(make_head, make_rest, {})
             strRep = generalize_tree(make_head, make_del_dict)
-            print("String rep: ", strRep)
-            print("\n\n")
+            if (strRep != upper_bound):
+                print(strRep)
     return generalize_tree(head, del_dict), mem
 
 def tree_upper_bound(trees): 
@@ -193,16 +190,16 @@ def hello_world():
 
 if __name__ == "__main__":
     trees = [
-        # ast.parse("str[1:3]"),
-        # ast.parse("str[1:2]"),
-        # ast.parse("str[2:1]"),
-        # ast.parse("str.split(sep)[1:3]"),
-        # ast.parse("str.split(sep)[1:2]"),
-        ast.parse("str.split(sep)[0]"),
-        ast.parse("str.split(sep)[1]"),
-        ast.parse("str.split(sep)[2]"),
-        ast.parse("str.split(sep)[lo[1]]"),
-        ast.parse("str.split(sep)[lo[2]]")
+        ast.parse("str[1:3]"),
+        ast.parse("str[1:2]"),
+        ast.parse("str[2:1]"),
+        ast.parse("str.split(sep)[1:3]"),
+        ast.parse("str.split(sep)[1:2]"),
+        # ast.parse("str.split(sep)[0]"),
+        # ast.parse("str.split(sep)[1]"),
+        # ast.parse("str.split(sep)[2]"),
+        # ast.parse("str.split(sep)[lo[1]]"),
+        # ast.parse("str.split(sep)[lo[2]]")
     ]
 
     upper_bound_dict, hole_options = tree_upper_bound(trees)
