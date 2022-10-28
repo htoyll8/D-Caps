@@ -2,7 +2,9 @@ import ast
 from itertools import zip_longest, combinations
 from typing import Any
 import copy
+from click import option
 from flask import Flask, render_template
+from numpy import str_
 
 app = Flask(__name__)
 
@@ -126,7 +128,8 @@ def trees_uppper_bound_util(trees):
     holes = []
     for k,v in del_dict.items():
         options = list(map(lambda x: ast.unparse(x), v))
-        options.insert(0, ast.unparse(k)) 
+        options.insert(0, ast.unparse(k))
+        # print("Options: ", options)
         holes.append(options)
     # Zip hole options with trees: 
     # Convert list of tuples into a dictionary.
@@ -135,18 +138,36 @@ def trees_uppper_bound_util(trees):
         option_dict = {}
         option_tups = list(zip(options, trees))
         for k, v in option_tups:
+            # print("Tup: ", k, ast.unparse(v))
             option_dict.setdefault(k, []).append(v)
         mem.setdefault(f"num_{idx}", {}).update(option_dict)
-    # print("Holes... ", mem)
+    
+    # Generalize holes.
+    for hole_num,hole_options in mem.items():
+        print(hole_num)
+        print("OPTIONS: ", hole_options)
+        for c in combinations(hole_options.values(), 2):
+            c_list = list(c)
+            make_head = c_list[0][0]
+            make_head_remainder = c_list[0][1:]
+            make_rest = c_list[1:][0]
+            make_rest.extend(make_head_remainder)
+            print("Head: ", make_head)
+            print("Rest: ", make_rest)
+            make_del_dict = compare_trees(make_head, make_rest, {})
+            strRep = generalize_tree(make_head, make_del_dict)
+            print("String rep: ", strRep)
+            print("\n\n")
     return generalize_tree(head, del_dict), mem
 
 def tree_upper_bound(trees): 
     sketch_dict = {}
     # Generate highest-level JSON.
     grouped_trees_dict = group_trees_by_type(trees)
-    # print("Groups: ", grouped_trees_dict.keys())
+    # print("Groups: ", grouped_trees_dict.values())
     hole_options = {}
     for _, group_items in grouped_trees_dict.items():
+        # print("Items: ", list(map(lambda x: ast.unparse(x), group_items)))
         upper_bound, option = trees_uppper_bound_util(group_items)
         hole_options.setdefault(upper_bound, option)
         sketch_dict.setdefault(upper_bound, group_items)
@@ -172,11 +193,11 @@ def hello_world():
 
 if __name__ == "__main__":
     trees = [
-        ast.parse("str[1:3]"),
-        ast.parse("str[1:2]"),
-        ast.parse("str[2:1]"),
-        ast.parse("str.split(sep)[1:3]"),
-        ast.parse("str.split(sep)[1:2]"),
+        # ast.parse("str[1:3]"),
+        # ast.parse("str[1:2]"),
+        # ast.parse("str[2:1]"),
+        # ast.parse("str.split(sep)[1:3]"),
+        # ast.parse("str.split(sep)[1:2]"),
         ast.parse("str.split(sep)[0]"),
         ast.parse("str.split(sep)[1]"),
         ast.parse("str.split(sep)[2]"),
@@ -185,26 +206,29 @@ if __name__ == "__main__":
     ]
 
     upper_bound_dict, hole_options = tree_upper_bound(trees)
-    picked_holes = {}
-    k = 'str.split(sep)[?]'
-    must_include = []
-    holes_count = len(hole_options[k])
-    while len(picked_holes) < holes_count:
-        cur_holes = hole_options[k]
-        hole_number = input(f"Holes [{holes_count} options]")
-        picked_hole_options = cur_holes[f"num_{hole_number}"]
-        for picked_hole_key, picked_hole_values in picked_hole_options.items():
-            if (len(must_include)):
-                if any(x in picked_hole_values for x in must_include):
-                    print("Option: ", picked_hole_key)
-                # print(list(map(lambda x: ast.unparse(x), picked_hole_values)))
-            else:
-                print("Option: ", picked_hole_key)  
-        choice = input("Choice? ")
-        picked_holes.setdefault(f"num_{hole_number}", choice)
-        must_include = picked_hole_options[choice]
-        # print("Must include: ", list(map(lambda x: ast.unparse(x), must_include)))
-    print(picked_holes)
+    for reverse_sketch,holes in hole_options.items():
+        print(reverse_sketch, holes)
+        print("\n")
+    # picked_holes = {}
+    # k = 'str.split(sep)[?]'
+    # must_include = []
+    # holes_count = len(hole_options[k])
+    # while len(picked_holes) < holes_count:
+    #     cur_holes = hole_options[k]
+    #     hole_number = input(f"Holes [{holes_count} options]")
+    #     picked_hole_options = cur_holes[f"num_{hole_number}"]
+    #     for picked_hole_key, picked_hole_values in picked_hole_options.items():
+    #         if (len(must_include)):
+    #             if any(x in picked_hole_values for x in must_include):
+    #                 print("Option: ", picked_hole_key)
+    #             # print(list(map(lambda x: ast.unparse(x), picked_hole_values)))
+    #         else:
+    #             print("Option: ", picked_hole_key)  
+    #     choice = input("Choice? ")
+    #     picked_holes.setdefault(f"num_{hole_number}", choice)
+    #     must_include = picked_hole_options[choice]
+    #     print("Must include: ", list(map(lambda x: ast.unparse(x), must_include)))
+    # print(picked_holes)
 
 
         
