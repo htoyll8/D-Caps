@@ -56,8 +56,28 @@ class TreeGeneralizer(ast.NodeTransformer):
     def generic_visit(self, node: ast.AST) -> Any:
         hole = ast.Name(id='?', ctx="")
         if node.marked:
-            # print("Retuning hole... ", type(node), ast.unparse(node))
+            # print("Retuning hole... ", type(node), ast.unparse(node), ast.unparse(hole))
             return hole
+        return super().generic_visit(node)
+
+class HoleInserter(ast.NodeTransformer):
+    def __init__(self, to_insert) -> None:
+        self.holes = []
+        self.to_insert = to_insert
+
+    def visit(self, node: ast.AST) -> Any:
+        method = 'visit_' + node.__class__.__name__
+        visitor = getattr(self, method, self.generic_visit)
+        return visitor(node)
+
+    def visit_Module(self, node: ast.AST) -> Any:
+        # Cannot remove modules.
+        return super().generic_visit(node)
+    
+    def generic_visit(self, node: ast.AST) -> Any:
+        if node.marked:
+            # print("Retuning hole... ", type(node), ast.unparse(node))
+            return self.to_insert
         return super().generic_visit(node)
 
 def group_trees_by_type(trees):
@@ -68,13 +88,8 @@ def group_trees_by_type(trees):
             body: ast.AST = tree.body[0]
             expr = body.__dict__['value']
         else:
-            # print("Regular expression... ", type(tree))
             expr = tree
 
-        # if (isinstance(body, ast.Expr)):
-            # print("Found expression!", body.__dict__['value'])
-            # expr = body.__dict__['value']
-            
         if (isinstance(expr, ast.Name)):
             typed_lists.setdefault(ast.Name, []).append(tree) 
         elif (isinstance(expr, ast.Constant)):
@@ -111,8 +126,9 @@ def compare_trees(head: ast.AST, rest: list[ast.AST], del_dict: dict[ast.AST, li
             return del_dict
 
         if (isinstance(head, ast.Constant) and any(isinstance(t, ast.Constant) and (t.value != head.value) for t in rest)):
-            # print("Constant mismatch! ", ast.unparse(head), head)
             del_dict[head] = rest
+            # print("Constant mismatch! ", ast.unparse(head), list(map(lambda x: ast.unparse(x), rest)))
+            # print("Updated del_dict: ", list(map(lambda x: ast.unparse(x), del_dict[head])))
             return del_dict
 
         if (isinstance(head, ast.Subscript) and (isinstance(t, ast.Subscript) for t in rest)):
@@ -146,110 +162,56 @@ def generalize_tree(tree, del_dict):
     holes_loc = HoleCollector().collect(head_tree_copy)
     return head_tree_copy, ast.unparse(head_tree_copy), holes_loc
 
-def trees_uppper_bound_util(trees):
-    head = trees[0]
-    rest = list(trees[1:])
-    del_dict = compare_trees(head, rest, {})
-    # Compute hole options. 
-    holes = []
-    for k,v in del_dict.items():
-        # options = list(map(lambda x: ast.unparse(x), v))
-        # options.insert(0, ast.unparse(k))
-        print("Ops: ", list(map(lambda x: ast.unparse(x), v)))
-        options = v
-        print("After setting options: ", options)
-        options.insert(0, k)
-        holes.append(options)
-    # Reverse sketch and the memory location of each hole. 
-    reverse_sketch_ast, reverse_sketch, holes_loc = generalize_tree(head, del_dict)
-    print("Locations: ", holes_loc)
-    print("Holes: ", holes)
-    # Zip hole options with trees: 
-    # Convert list of tuples into a dictionary.
-    mem = {}
-    str_asts = {}
-    print("Holes: ", holes)
-    for idx, options in enumerate(holes):
-        option_dict = {}
-        option_tups = list(zip(options, trees))
-        for k, v in option_tups:
-            k_str = ast.unparse(k)
-            if k_str not in str_asts:
-                str_asts[k_str] = k
-            option_dict.setdefault(k_str, []).append(v)
-        # Option dict with ASTs instead of strings. 
-        for str, str_ast in str_asts.items():
-            option_dict[str_ast] = option_dict.pop(str)
-        mem.setdefault((f"num_{idx}", holes_loc[idx]), {}).update(option_dict)
-    # Generalize holes.
-    return reverse_sketch_ast, reverse_sketch, mem
+def insert_hole_sketch_util(reverse_sketch_ast, hole_idx):
+    TreeMarker().visit(reverse_sketch_ast)
 
-def tree_upper_bound(trees): 
-    sketch_dict = {}
-    # Generate highest-level JSON.
-    grouped_trees_dict = group_trees_by_type(trees)
-    # print("Groups: ", grouped_trees_dict.values())
-    hole_options = {}
-    for _, group_items in grouped_trees_dict.items():
-        # print("Items: ", list(map(lambda x: ast.unparse(x), group_items)))
-        upper_bound_ast, upper_bound, option = trees_uppper_bound_util(group_items)
-        hole_options.setdefault(upper_bound_ast, option)
-        sketch_dict.setdefault(upper_bound_ast, group_items)
-    return sketch_dict, hole_options
+def insert_holes(reverse_sketch_ast, hole_sketches, hole_idx):
+    hole_nodes = HoleCollector().collect(reverse_sketch_ast)
+    tree_nodes = TreeCollector().collect(reverse_sketch_ast)
+    for hole_sketch in hole_sketches:
+        print("Inserting... ", hole_sketch)
 
-def present_trees(trees): 
-    _, hole_options = tree_upper_bound(trees)
-    reverse_sketches = list(hole_options.keys())
-    for idx, reverse_sketch in enumerate(reverse_sketches):
-        print(f"{idx}: {ast.unparse(reverse_sketch)}")
-        for hole_count, hole_choices in hole_options[reverse_sketch].items():
-            # print(f"K: {hole_count}, V: {hole_choices}")
-            hole_choices_keys = list(hole_choices.keys())
-            print("Trees: ", hole_choices_keys)
-            print("Head: ", ast.unparse(hole_choices_keys[0]))
-            print("Rest: ", list(map(lambda x: ast.unparse(x),hole_choices_keys[1:])))
-            present_trees(hole_choices_keys)
+def expand_holes_util(hole_options):
+    grouped_dict = group_trees_by_type(hole_options)
+    hole_sketches = []
+    # Generalize typed group. 
+    for _, group_items in grouped_dict.items():
+        head, rest = group_items[0], group_items[1:]
+        del_dict = compare_trees(head, rest, {})
+        # Append all options if the group elements are constants. 
+        if (isinstance(head, ast.Constant) and head in del_dict):
+            hole_sketches.append(head)
+            hole_sketches.extend(rest)
+        #  Append generalizations of subsets of the hole options. 
+        else: 
+            reverse_sketch_ast, reverse_sketch, _ = generalize_tree(head, del_dict)
+            hole_sketches.append(reverse_sketch_ast)
+    return hole_sketches
 
-
-
-
-        # for _, options in hole_options[reverse_sketch].items():
-        #     print("Options: ", list(map(lambda x: ast.unparse(x), options.keys())))
-            # new_reverse_sketches = list(options.keys())
-            # _, new_hole_options = tree_upper_bound(new_reverse_sketches)
-            # new_hole_options_str = list(map(lambda x: ast.unparse(x), list(new_hole_options.keys())))
-            # print(f"New Hole options: {new_hole_options_str}")
-   
-    # print("Hole options: ", hole_options)
-    # reverse_sketches = list(hole_options.keys())
-
-    # # Present sketch options. 
-    # print("Sketch options: ")
-    # for idx, reverse_sketch in enumerate(reverse_sketches):
-    #     print(f"{idx}: {reverse_sketch}")
-
-    # # Ask user to pick a sketch. 
-    # choosen_sketch_idx = int(input("Which sketch would you like to expand?"))
-    # choosen_sketch = reverse_sketches[choosen_sketch_idx]
-    # print(f"Expanding sketch: {choosen_sketch}")
-
-    # # Get options for each hole. 
-    # holes_idx = list(hole_options[choosen_sketch].keys())
-
-    # Expand every hole. 
-    # print("Holes: ", holes_idx)
-    # for idx, hole in enumerate(holes_idx):
-    #     hole_keys = list(hole_options[choosen_sketch][hole].keys())
-    #     hole_keys_ast = list(map(lambda x: ast.parse(x), hole_keys)) #todo: this will be an isssue. 
-    #     # print("Hole keys [pre-process]: ", hole_keys)
-    #     sketch_dict, _ = tree_upper_bound(hole_keys_ast)
-    #     for idx, new_hole in enumerate(list(sketch_dict.keys())):
-    #         print(f"{idx}: {new_hole}")
-    #     new_hole_choice = int(input("Which expansion?"))
-    #     print("Picked: ", list(sketch_dict.keys())[new_hole_choice])
-    #     print("============")
+def expand_holes(reverse_sketch_ast, del_dict):
+    hole_idx = 0
+    for hole_key in del_dict:
+        hole_options = del_dict[hole_key]
+        hole_options.insert(0, hole_key)
+        hole_sketches = expand_holes_util(hole_options)
+        print(f"Expanding hole {hole_idx}: ", list(map(lambda x: ast.unparse(x), hole_options)))
+        print(f"Expanded sketches {hole_idx}: ", list(map(lambda x: ast.unparse(x), hole_sketches)))
+        # insert_holes(reverse_sketch_ast, hole_sketches, hole_idx)
+        hole_idx += 1
         
-
+def trees_uppper_bounds(trees):
+    print("Trees: ", list(map(lambda x: ast.unparse(x), trees)))
+    print("======================================")
+    # Group trees.
+    grouped_dict = group_trees_by_type(trees)
+    # Generalize typed group. 
+    for _, group_items in grouped_dict.items():
+        del_dict = compare_trees(group_items[0], group_items[1:], {})
+        reverse_sketch_ast, reverse_sketch, _ = generalize_tree(group_items[0], del_dict)
+        print("Reverse sketch: ", reverse_sketch)
+        expand_holes(reverse_sketch_ast, del_dict)
+        print("==================================")
+    
 def read_file(file_name) -> list[ast.AST]:
     with open(file_name) as f:
         return [ast.parse(line.strip()) for line in f.readlines()]
@@ -282,39 +244,9 @@ if __name__ == "__main__":
         ast.parse("str.split(sep)[lo[2]]")
     ]
 
-    trees = [
-        ast.parse("str[1:3]"),
-        ast.parse("str.split(sep)[1:3]"),
-        ast.parse("str.split(sep)[0]"),
-        ast.parse("str.split(sep)[1]"),
-        ast.parse("str.split(sep)[lo[1]]"),
-        ast.parse("str.split(sep)[lo[2]]")
-    ]
-
-    # trees = read_file("input-file.txt")
-    present_trees(trees)
+    # trees = read_file("input-file4.txt")
+    trees_uppper_bounds(trees)
     
-
-    # picked_holes = {}
-    # k = 'str.split(sep)[?]'
-    # must_include = []
-    # holes_count = len(hole_options[k])
-    # while len(picked_holes) < holes_count:
-    #     cur_holes = hole_options[k]
-    #     hole_number = input(f"Holes [{holes_count} options]")
-    #     picked_hole_options = cur_holes[f"num_{hole_number}"]
-    #     for picked_hole_key, picked_hole_values in picked_hole_options.items():
-    #         if (len(must_include)):
-    #             if any(x in picked_hole_values for x in must_include):
-    #                 print("Option: ", picked_hole_key)
-    #             # print(list(map(lambda x: ast.unparse(x), picked_hole_values)))
-    #         else:
-    #             print("Option: ", picked_hole_key)  
-    #     choice = input("Choice? ")
-    #     picked_holes.setdefault(f"num_{hole_number}", choice)
-    #     must_include = picked_hole_options[choice]
-    #     print("Must include: ", list(map(lambda x: ast.unparse(x), must_include)))
-    # print(picked_holes)
 
 
        
