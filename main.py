@@ -162,14 +162,26 @@ def generalize_tree(tree, del_dict):
     holes_loc = HoleCollector().collect(head_tree_copy)
     return head_tree_copy, ast.unparse(head_tree_copy), holes_loc
 
-def insert_hole_sketch_util(reverse_sketch_ast, hole_idx):
+def insert_hole_sketch_util(reverse_sketch_ast, node_to_insert, hole_to_fill):
     TreeMarker().visit(reverse_sketch_ast)
+    tree_nodes = TreeCollector().collect(reverse_sketch_ast)
+    idx_to_mark = tree_nodes.index(hole_to_fill)
+    tree_nodes[idx_to_mark].marked = True
+    reverse_sketch_ast_copy = copy.deepcopy(reverse_sketch_ast)
+    HoleInserter(node_to_insert).visit(reverse_sketch_ast_copy)
+    return reverse_sketch_ast_copy
 
 def insert_holes(reverse_sketch_ast, hole_sketches, hole_idx):
     hole_nodes = HoleCollector().collect(reverse_sketch_ast)
-    tree_nodes = TreeCollector().collect(reverse_sketch_ast)
+    hole_to_fill = hole_nodes[hole_idx]
+    seen = []
     for hole_sketch in hole_sketches:
-        print("Inserting... ", hole_sketch)
+        # print("Inserting... ", ast.unparse(hole_sketch), f" into the {hole_idx} hole ", ast.unparse(reverse_sketch_ast))
+        filled_sketch = insert_hole_sketch_util(reverse_sketch_ast, hole_sketch, hole_to_fill)
+        filled_sketch_str = ast.unparse(filled_sketch)
+        if (filled_sketch_str not in seen):
+            print("\t\t", filled_sketch_str)
+            seen.append(filled_sketch_str)
 
 def expand_holes_util(hole_options):
     grouped_dict = group_trees_by_type(hole_options)
@@ -194,9 +206,9 @@ def expand_holes(reverse_sketch_ast, del_dict):
         hole_options = del_dict[hole_key]
         hole_options.insert(0, hole_key)
         hole_sketches = expand_holes_util(hole_options)
-        print(f"Expanding hole {hole_idx}: ", list(map(lambda x: ast.unparse(x), hole_options)))
-        print(f"Expanded sketches {hole_idx}: ", list(map(lambda x: ast.unparse(x), hole_sketches)))
-        # insert_holes(reverse_sketch_ast, hole_sketches, hole_idx)
+        # print(f"Expanding hole {hole_idx}: ", list(map(lambda x: ast.unparse(x), hole_options)))
+        # print(f"Expanded sketches {hole_idx}: ", list(map(lambda x: ast.unparse(x), hole_sketches)))
+        insert_holes(reverse_sketch_ast, hole_sketches, hole_idx)
         hole_idx += 1
         
 def trees_uppper_bounds(trees):
@@ -208,7 +220,7 @@ def trees_uppper_bounds(trees):
     for _, group_items in grouped_dict.items():
         del_dict = compare_trees(group_items[0], group_items[1:], {})
         reverse_sketch_ast, reverse_sketch, _ = generalize_tree(group_items[0], del_dict)
-        print("Reverse sketch: ", reverse_sketch)
+        print(reverse_sketch)
         expand_holes(reverse_sketch_ast, del_dict)
         print("==================================")
     
@@ -244,7 +256,7 @@ if __name__ == "__main__":
         ast.parse("str.split(sep)[lo[2]]")
     ]
 
-    # trees = read_file("input-file4.txt")
+    trees = read_file("input-file4.txt")
     trees_uppper_bounds(trees)
     
 
