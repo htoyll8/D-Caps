@@ -1,5 +1,6 @@
 import ast
 from itertools import zip_longest, combinations
+from collections import OrderedDict
 from typing import Any
 import copy
 from flask import Flask, render_template
@@ -112,7 +113,7 @@ def group_trees_by_type(trees):
             typed_lists.setdefault(type(tree), []).append(tree)
     return typed_lists
 
-def compare_trees(head: ast.AST, rest: list[ast.AST], del_dict: dict[ast.AST, list[ast.AST]]):
+def compare_trees(head: ast.AST, rest: list[ast.AST], del_dict: OrderedDict[ast.AST, list[ast.AST]]):
     # print("Comparing... ", ast.unparse(head), list(map(lambda x: ast.unparse(x), rest)))
     if not all(isinstance(t, type(head)) for t in rest):
         # print("Mismatch! ", ast.unparse(head))
@@ -171,6 +172,7 @@ def insert_hole_sketch_util(reverse_sketch_ast, node_to_insert, hole_to_fill):
     HoleInserter(node_to_insert).visit(reverse_sketch_ast_copy)
     return reverse_sketch_ast_copy
 
+# Fills the hole and returns the new sketch. 
 def insert_holes(reverse_sketch_ast, hole_sketches, hole_idx):
     hole_nodes = HoleCollector().collect(reverse_sketch_ast)
     hole_to_fill = hole_nodes[hole_idx]
@@ -180,9 +182,12 @@ def insert_holes(reverse_sketch_ast, hole_sketches, hole_idx):
         filled_sketch = insert_hole_sketch_util(reverse_sketch_ast, hole_sketch, hole_to_fill)
         filled_sketch_str = ast.unparse(filled_sketch)
         if (filled_sketch_str not in seen):
-            print("\t\t", filled_sketch_str)
-            seen.append(filled_sketch_str)
+            # print("\t\t", filled_sketch_str)
+            seen.append(filled_sketch)
+    return seen
 
+
+# Returns all of the things that can fill the hole along with its deletion dictionary.
 def expand_holes_util(hole_options):
     grouped_dict = group_trees_by_type(hole_options)
     hole_sketches = []
@@ -192,25 +197,56 @@ def expand_holes_util(hole_options):
         del_dict = compare_trees(head, rest, {})
         # Append all options if the group elements are constants. 
         if (isinstance(head, ast.Constant) and head in del_dict):
-            hole_sketches.append(head)
-            hole_sketches.extend(rest)
+            hole_sketches.append((head, {}))
+            for tree in rest: 
+                hole_sketches.append((tree, {}))
         #  Append generalizations of subsets of the hole options. 
         else: 
-            reverse_sketch_ast, reverse_sketch, _ = generalize_tree(head, del_dict)
-            hole_sketches.append(reverse_sketch_ast)
+            reverse_sketch_ast, _, _ = generalize_tree(head, del_dict)
+            hole_sketches.append((reverse_sketch_ast, del_dict))
     return hole_sketches
 
 def expand_holes(reverse_sketch_ast, del_dict):
     hole_idx = 0
     for hole_key in del_dict:
+        # Hole options are all of ASTs that can fill the hole. 
         hole_options = del_dict[hole_key]
         hole_options.insert(0, hole_key)
-        hole_sketches = expand_holes_util(hole_options)
+        # All of the sketch ASTs that can fill the holes. 
+        hole_sketches_tup = expand_holes_util(hole_options)
+        print("Hole sketches tup: ", hole_sketches_tup)
         # print(f"Expanding hole {hole_idx}: ", list(map(lambda x: ast.unparse(x), hole_options)))
+        # hole_sketches = list(map(lambda x: x[0], hole_sketches_tup))
         # print(f"Expanded sketches {hole_idx}: ", list(map(lambda x: ast.unparse(x), hole_sketches)))
-        insert_holes(reverse_sketch_ast, hole_sketches, hole_idx)
+        # insert_holes(reverse_sketch_ast, hole_sketches, hole_idx)
         hole_idx += 1
-        
+
+def expand_hole(reverse_sketch_ast, del_dict):
+    hole_idx = int(input(f"Pick hole to expand: {0} - {len(del_dict)-1} for {ast.unparse(reverse_sketch_ast)}: "))
+    hole_key = list(del_dict)[hole_idx]
+    hole_options = del_dict[hole_key]
+    # print("Hole options: ", hole_options)
+    hole_options.insert(0, hole_key)
+    hole_sketches_tup = expand_holes_util(hole_options)
+    hole_sketches = list(map(lambda x: x[0], hole_sketches_tup))
+    # print("Hole sketches: ", hole_sketches)
+    filled_sketches = insert_holes(reverse_sketch_ast, hole_sketches, hole_idx)
+    for idx, filled_sketch in enumerate(filled_sketches):
+        print(f"\t\t {idx}: ", ast.unparse(filled_sketch))
+    sketch_idx = int(input(f"Pick a sketch to expand 0 - {len(filled_sketches)-1}: "))
+    if hole_sketches_tup[sketch_idx][1]:
+        # print("Going to recur!")
+        # Update the deleition dictionary. 
+        # print("Updating: ", list(map(lambda x: ast.unparse(x), del_dict.keys())))
+        # print("Hole to replace: ", ast.unparse(hole_key))
+        # print("Replacing with: ", )
+        new_hole = list(hole_sketches_tup[sketch_idx][1].items())[0]
+        new_del_dict = OrderedDict([new_hole if k == hole_key else (k, v) for k, v in del_dict.items()])
+        expand_hole(filled_sketches[sketch_idx], new_del_dict)
+    else:
+        final_sketch = filled_sketches[sketch_idx]
+        print("Final sketch: ", ast.unparse(final_sketch))
+    
 def trees_uppper_bounds(trees):
     print("Trees: ", list(map(lambda x: ast.unparse(x), trees)))
     print("======================================")
@@ -221,7 +257,9 @@ def trees_uppper_bounds(trees):
         del_dict = compare_trees(group_items[0], group_items[1:], {})
         reverse_sketch_ast, reverse_sketch, _ = generalize_tree(group_items[0], del_dict)
         print(reverse_sketch)
-        expand_holes(reverse_sketch_ast, del_dict)
+        if (del_dict):
+            expand_hole(reverse_sketch_ast, del_dict)
+        # expand_holes(reverse_sketch_ast, del_dict)
         print("==================================")
     
 def read_file(file_name) -> list[ast.AST]:
@@ -245,7 +283,8 @@ def hello_world():
 if __name__ == "__main__":
     trees = [
         ast.parse("str[1:3]"),
-        ast.parse("str[1:2]"),
+        ast.parse("str[1:len('a')]"),
+        ast.parse("str[1:len('b')]"),
         ast.parse("str[2:1]"),
         ast.parse("str.split(sep)[1:3]"),
         ast.parse("str.split(sep)[1:2]"),
@@ -256,7 +295,7 @@ if __name__ == "__main__":
         ast.parse("str.split(sep)[lo[2]]")
     ]
 
-    trees = read_file("input-file4.txt")
+    # trees = read_file("input-file.txt")
     trees_uppper_bounds(trees)
     
 
