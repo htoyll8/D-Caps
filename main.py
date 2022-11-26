@@ -261,29 +261,37 @@ def in_more_general_sketch(t1, t2, expanded_holes):
 def expand_hole_util(to_expand_holes):
     expanded_holes = []
     for to_expand_hole in to_expand_holes:
-        sketches = list(set(trees_uppper_bounds_no_expand(to_expand_hole)))
+        sketches = trees_uppper_bounds_no_expand(to_expand_hole)
         expanded_holes.append(sketches)
     return expanded_holes
     
 def expand_hole(sketch_ast, holes_dict):
     to_expand = get_holes_from_user()
     to_expand_holes = get_hole_idxs(holes_dict, to_expand)
-    print(f"Expanding {to_expand}: ", ast.unparse(sketch_ast), to_expand_holes)
+    # print(f"Expanding {to_expand}: ", ast.unparse(sketch_ast), to_expand_holes)
     expanded_holes = expand_hole_util(to_expand_holes)
+    l = list(map(lambda x: list(x.keys()), expanded_holes))
+    products = list(product(*l))
+    for x in products:
+        new_l = []
+        for idx, y in enumerate(x):
+            print(expanded_holes[idx][y])
+            new_l.append(expanded_holes[idx][y])
+        print(new_l)
 
 def trees_uppper_bounds_no_expand(trees):
     # Group trees.
     grouped_dict = group_trees_by_type(trees)
     # Generalize typed group. 
-    reverse_sketches = []
+    reverse_sketches = {}
     for _, group_items in grouped_dict.items():
         if (all(isinstance(x, ast.Constant) for x in group_items)):
-            constant_reverse_sketches = list(map(lambda x: ast.unparse(x), set(group_items)))
-            reverse_sketches.extend(constant_reverse_sketches)
+            for item in group_items: 
+                reverse_sketches.setdefault(ast.unparse(item), []).append(item)
         else: 
             del_dict = compare_trees(group_items[0], group_items[1:], {})
             _, reverse_sketch, _ = generalize_tree(group_items[0], del_dict)
-            reverse_sketches.append(reverse_sketch)
+            reverse_sketches.setdefault(reverse_sketch, []).extend(group_items)
     return reverse_sketches
 
 def trees_uppper_bounds(trees):
