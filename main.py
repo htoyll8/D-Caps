@@ -64,6 +64,7 @@ class TreeGeneralizer(ast.NodeTransformer):
         hole = ast.Name(id=f'?', ctx="")
         if node.marked:
             # print("Retuning hole... ", type(node), ast.unparse(node), ast.unparse(hole))
+            # print("Deletion dictionary: ", self.del_dict)
             for k,v in self.del_dict.items(): 
                 if (is_equal(k, node)):
                     l = v
@@ -150,7 +151,7 @@ def extract_common_type(a) -> str:
         else: 
             return ""
     elif isinstance(a, ast.Name):
-        print("Testing... here ", a.id)
+        # print("Testing... here ", a.id)
         if isinstance(type(a.id), int):
             return "int"
         elif isinstance(type(a.id), str):
@@ -218,6 +219,8 @@ def get_holes_from_user():
         lst.append(ele)
     return lst
 
+# Return val: Options for each hole.
+# Return type: list[list[AST]]
 def get_hole_idxs(holes_dict, idxs):
     new_holes_list = []
     holes_list = list(holes_dict)
@@ -234,27 +237,54 @@ def expand_hole_combos(expanded_holes):
     for c in combinations:
         print("Combo: ", c)
 
+# Return val: The number of times ? occurs in the sketch.
+# Return type: Int.
+def count_holes(sketch): 
+    return sketch.count('?')
+
+# Return val: Whether there's a more general sketch these nodes fall within. 
+# Return: True or False.
+def in_more_general_sketch(t1, t2, expanded_holes):
+    t1_vals = expanded_holes[t1]
+    t2_vals = expanded_holes[t2]
+    t1_hole_count = count_holes(t1)
+    t2_hole_count = count_holes(t2)
+    print(list(map(lambda x: ast.unparse(x), t1_vals)))
+    print(list(map(lambda x: ast.unparse(x), t2_vals)))
+    if (t1_hole_count > t2_hole_count and all(x in t1_vals for x in t2_vals)):
+        return True
+    elif (t2_hole_count > t1_hole_count and all(x in t2_vals for x in t1_vals)):
+        return True
+    else: 
+        return False
+
 def expand_hole_util(to_expand_holes):
     expanded_holes = []
     for to_expand_hole in to_expand_holes:
-        cur_level_expanded_holes = dict()
-        cur_level_seen = []
-        for c in combinations(to_expand_hole, 2):
-            del_dict = compare_trees(c[0], c[1:], {})
-            _, reverse_sketch, _ = generalize_tree(c[0], del_dict)
-            if (reverse_sketch != ast.unparse(c[0]) and reverse_sketch != ast.unparse(c[1])):
-                cur_level_seen.extend(list(map(lambda x: ast.unparse(x), c)))
-            if (reverse_sketch not in cur_level_seen):
-                cur_level_expanded_holes.setdefault(reverse_sketch, []).extend(c) 
-        expanded_holes.append(cur_level_expanded_holes)
-    expand_hole_combos(expanded_holes)
+        sketches = list(set(trees_uppper_bounds_no_expand(to_expand_hole)))
+        expanded_holes.append(sketches)
     return expanded_holes
     
 def expand_hole(sketch_ast, holes_dict):
     to_expand = get_holes_from_user()
-    print(f"Expanding {to_expand}: ", ast.unparse(sketch_ast))
     to_expand_holes = get_hole_idxs(holes_dict, to_expand)
-    expand_hole_util(to_expand_holes)
+    print(f"Expanding {to_expand}: ", ast.unparse(sketch_ast), to_expand_holes)
+    expanded_holes = expand_hole_util(to_expand_holes)
+
+def trees_uppper_bounds_no_expand(trees):
+    # Group trees.
+    grouped_dict = group_trees_by_type(trees)
+    # Generalize typed group. 
+    reverse_sketches = []
+    for _, group_items in grouped_dict.items():
+        if (all(isinstance(x, ast.Constant) for x in group_items)):
+            constant_reverse_sketches = list(map(lambda x: ast.unparse(x), set(group_items)))
+            reverse_sketches.extend(constant_reverse_sketches)
+        else: 
+            del_dict = compare_trees(group_items[0], group_items[1:], {})
+            _, reverse_sketch, _ = generalize_tree(group_items[0], del_dict)
+            reverse_sketches.append(reverse_sketch)
+    return reverse_sketches
 
 def trees_uppper_bounds(trees):
     # Group trees.
@@ -266,9 +296,8 @@ def trees_uppper_bounds(trees):
         reverse_sketch_ast, reverse_sketch, _ = generalize_tree(group_items[0], del_dict)
         reverse_sketches.append(reverse_sketch)
         print(reverse_sketch)
-        # if (del_dict):
-        #     expand_hole(reverse_sketch_ast, del_dict)
-        print("==================================")
+        if (del_dict):
+            expand_hole(reverse_sketch_ast, del_dict)
     return grouped_dict, reverse_sketches
 
 def assign_sketch_colors(l):
@@ -314,6 +343,9 @@ def main():
 if __name__ == "__main__":
     # app.run(debug=True)
     trees = [
+        ast.parse("(str + str)[1:3]"),
+        ast.parse("(str + str1)[1:3]"),
+        ast.parse("(str2 + str)[1:3]"),
         ast.parse("str[1:3]"),
         ast.parse("str[1:len('a')]"),
         ast.parse("str[1:len('b')]"),
