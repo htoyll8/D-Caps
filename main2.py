@@ -18,7 +18,11 @@ class ReverseSketch:
         self.holes = holes
         self.subs = substitutions
 
-    # Expand a single hole. 
+    '''
+    Expand a single hole. 
+    @param 
+    @return AST options for each hole. 
+    '''
     def expand_hole(self, hole_num: int):
         # Global variable
         global ID_COUNTER
@@ -44,7 +48,11 @@ class ReverseSketch:
             return sketches
         return trees_uppper_bounds(hole_options)
 
-    #  Create the string representations of each hole option. 
+    '''
+    Generate a string representation of each hole option. 
+    @param 
+    @return A list of lists of hole option strings. 
+    '''
     def generate_hole_str(self):
         print(self.holes)
         # List of lists of hole AST options. 
@@ -56,7 +64,11 @@ class ReverseSketch:
             str_holes_ASTs.append([ast.unparse(x.sketch_AST) for x in hole_AST])
         return str_holes_ASTs
 
-    #  Generate a JSON representation of the Reverse Sketch Object. 
+    '''
+    Generate a JSON representation of the revere sketch.'
+    @param 
+    @return JSON representation of the reverse sketch.
+    '''
     def generate_json(self):
         # return json.dumps(self.__dict__)
         return {
@@ -66,7 +78,11 @@ class ReverseSketch:
             'subs': self.generate_hole_str()
         }
 
-    # A string of the reverse sketch. 
+    '''
+    Generate a string representation of the revere sketch.'
+    @param 
+    @return string representation of the reverse sketch.
+    '''
     def __str__(self):
         return f"{ast.unparse(self.sketch_AST)}"   
 
