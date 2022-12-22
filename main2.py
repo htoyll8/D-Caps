@@ -5,9 +5,14 @@ import copy
 from typing import Any
 from collections import OrderedDict
 from itertools import zip_longest, combinations, groupby
+from flask import Flask, jsonify, abort, make_response
+
+# TODO: Turn into a class. 
+ID_COUNTER = 0
 
 class ReverseSketch:
-    def __init__(self, sketch_AST, trees, holes, substitutions):
+    def __init__(self, sketch_id, sketch_AST, trees, holes, substitutions):
+        self.id = sketch_id
         self.sketch_AST = sketch_AST
         self.trees = trees
         self.holes = holes
@@ -15,6 +20,8 @@ class ReverseSketch:
 
     # Expand a single hole. 
     def expand_hole(self, hole_num: int):
+        # Global variable
+        global ID_COUNTER
         hole_id = f"x_{hole_num}"
         hole_options = []
         for tree_id, tree in enumerate(self.trees): 
@@ -31,9 +38,33 @@ class ReverseSketch:
                 # If we haven't seen this value create a reverse sketch of it. 
                 if x_str not in seen_sketches: 
                     seen_sketches.add(x_str)
-                    sketches.append(ReverseSketch(x, [], [], []))
+                    sketches.append(ReverseSketch(ID_COUNTER, x, [], [], []))
+                    # Increment the ID counter. 
+                    ID_COUNTER += 1
             return sketches
         return trees_uppper_bounds(hole_options)
+
+    #  Create the string representations of each hole option. 
+    def generate_hole_str(self):
+        print(self.holes)
+        # List of lists of hole AST options. 
+        holes_ASTs = [self.expand_hole(hole_num) for hole_num in range(len(self.holes))]
+        # String representations of hole optinos. 
+        str_holes_ASTs = []
+        # Iterate over each list, which represents the options for a single hole. 
+        for hole_AST in holes_ASTs: 
+            str_holes_ASTs.append([ast.unparse(x.sketch_AST) for x in hole_AST])
+        return str_holes_ASTs
+
+    #  Generate a JSON representation of the Reverse Sketch Object. 
+    def generate_json(self):
+        # return json.dumps(self.__dict__)
+        return {
+            'id': self.id,
+            'sketch_str': f"{ast.unparse(self.sketch_AST)}",
+            'holes': self.holes,
+            'subs': self.generate_hole_str()
+        }
 
     # A string of the reverse sketch. 
     def __str__(self):
@@ -136,6 +167,7 @@ def group_trees_by_type(trees: list[ast.AST]) -> list[list[ast.AST]]:
     return typed_lists
 
 def antiunfy(trees):
+    global ID_COUNTER
     '''
     Compare n ASTs
     @param single AST
@@ -235,7 +267,10 @@ def antiunfy(trees):
     #  Genera substitutions for each tree in the group. 
     substitutions = generate_substitutions(del_dict)
     # (reverse sketch AST, substitutions for each tree)
-    return ReverseSketch(reverse_sketch, trees, holes, substitutions)
+    reverse_sketch_obj = ReverseSketch(ID_COUNTER, reverse_sketch, trees, holes, substitutions)
+    # Update the id counter. 
+    ID_COUNTER += 1
+    return reverse_sketch_obj
 
 '''
 Anti-unify n trees. 
@@ -281,19 +316,74 @@ def interact(sketches: list[ReverseSketch]):
     print("Picked: ", selected_sketch)
     # Show the user the number of holes they can select from. 
     print("Holes: ", len(selected_sketch.holes))
+    if (not len(selected_sketch.holes)):
+        return
     # Store the selected hole. 
     hole_id = int(input(f"Which hole would you like to expand 0-{len(selected_sketch.holes)-1}: "))
     # Expand the selected hole.
-    interact(expand_hole(selected_sketch, hole_id))
+    return interact(expand_hole(selected_sketch, hole_id))
+
+
+app = Flask(__name__)
+
+# Temporary memory structure; The array stores the JSON reps of the reverse sketches. 
+REVERSE_SKETCHES = []
+
+@app.route('/oversynth/api/v1.0/sketches', methods=['GET'])
+def get_sketches():
+    global REVERSE_SKETCHES
+    # If reverse sketches is empty, populate with the highest-level sketches. 
+    if not REVERSE_SKETCHES:
+        trees = read_trees("input-file.txt")
+        # Set reverse sketches to a list of JSON objects for each reverse sketch. 
+        REVERSE_SKETCHES = [obj.generate_json() for obj in trees_uppper_bounds(trees)]
+        # Return a jsonified REVERSE_SKETCH.
+        return jsonify(REVERSE_SKETCHES)
+    # If the reverse sketches are not empty, return them. 
+    else: 
+        return jsonify(REVERSE_SKETCHES)
+
+@app.route('/oversynth/api/v1.0/sketches/<int:sketch_id>', methods=['GET'])
+def get_sketch(sketch_id):
+    global REVERSE_SKETCHES
+    # If the reverse sketches are empty, abort. 
+    if not len(REVERSE_SKETCHES) or len(REVERSE_SKETCHES) <= sketch_id:
+        abort(404)
+    # If the reverse sketches are not empty, return the sketch_id-th sketch. 
+    return jsonify(REVERSE_SKETCHES[sketch_id])
+
+@app.route('/oversynth/api/v1.0/sketches/<int:sketch_id>/<int:hole_id>', methods=['GET'])
+def get_hole(sketch_id, hole_id):
+    global REVERSE_SKETCHES
+    # If the reverse sketches are empty, abort. 
+    if not len(REVERSE_SKETCHES) or len(REVERSE_SKETCHES) <= sketch_id or len(REVERSE_SKETCHES[sketch_id]['subs']) <= hole_id:
+        abort(404)
+    # If the reverse sketches are not empty, return the sketch_id-th sketch. 
+    return jsonify(REVERSE_SKETCHES[sketch_id]['subs'][hole_id])
+
+# TODO: Change to PUT
+@app.route('/oversynth/api/v1.0/sketches/<int:sketch_id>/<int:hole_id>', methods=['PUT'])
+def update_hole(sketch_id, hole_id):
+    global REVERSE_SKETCHES
+    # If the reverse sketches are empty, abort. 
+    if not len(REVERSE_SKETCHES) or len(REVERSE_SKETCHES) <= sketch_id or len(REVERSE_SKETCHES[sketch_id]['subs']) <= hole_id:
+        abort(404)
+    # Retrieve the sketch. 
+    print(REVERSE_SKETCHES[sketch_id]['subs'][hole_id])
+    return []
+
+@app.errorhandler(404)
+def not_found(error):
+    return make_response(jsonify({'error': 'Not found'}), 404) 
 
 if __name__ == "__main__":
-    trees = read_trees("input-file.txt")
-    reverse_sketches = trees_uppper_bounds(trees)
-    interact(reverse_sketches)
+    app.run(debug=True)
+    # trees = read_trees("input-file.txt")
+    # reverse_sketches = trees_uppper_bounds(trees)
+    # interact(reverse_sketches)
     # First reverse sketch. 
     # test_sketch = reverse_sketches[0]
     # print(ast.unparse(test_sketch.sketch_AST))
     # # for hole_id in range(len(test_sketch.holes)):
     # test_sketches2 = expand_hole(test_sketch, 0)
     # expand_hole(test_sketches2[1], 0)
-    
