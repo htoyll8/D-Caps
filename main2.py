@@ -15,15 +15,33 @@ class ReverseSketch:
         self.id = sketch_id
         self.sketch_AST = sketch_AST
         self.trees = trees
-        self.holes = holes
         self.subs = substitutions
+        # x_0, ... , x_n for each hole. 
+        self.holes = holes 
+
+    '''
+    Find all of the original trees that have any of the substitutions. 
+    @param 
+    @return a list of original ASTs; the entire tree, not the subtree. 
+    '''
+    def recover_groups(self, hole_num: int, selected_hole_options: list[ast.AST]):
+        # Store the trees that satisfy that have the selected sub-expression. 
+        valid_tree = []
+        for tree_id, tree in enumerate(self.trees):
+            # The substitution of the current tree for x_i. 
+            tree_substitution = self.subs[tree_id][f"x_{hole_num}"]
+            # If the substition is in the selected hole_options list, add it. 
+            if tree_substitution in selected_hole_options:
+                valid_tree.append(tree)
+        # Return all of the valid trees. 
+        return valid_tree
 
     '''
     Expand a single hole. 
     @param 
     @return AST options for each hole. 
     '''
-    def expand_hole(self, hole_num: int):
+    def expand_hole(self, hole_num: int, see_groups: bool = False):
         # Global variable
         global ID_COUNTER
         hole_id = f"x_{hole_num}"
@@ -33,7 +51,7 @@ class ReverseSketch:
             tree_substitution = self.subs[tree_id][hole_id]
             # Add the substitution to the list of options.
             hole_options.append(tree_substitution)
-        # Return reverse sketches that can fill the hole. 
+        # If all of the trees are constants, return their sketches.   
         if (all(isinstance(x, ast.Constant) for x in hole_options)):
             sketches = []
             seen_sketches = set()
@@ -45,8 +63,16 @@ class ReverseSketch:
                     sketches.append(ReverseSketch(ID_COUNTER, x, [], [], []))
                     # Increment the ID counter. 
                     ID_COUNTER += 1
-            return sketches
-        return trees_uppper_bounds(hole_options)
+            if see_groups: 
+                return {"Consts" : hole_options}, sketches
+            else: 
+                return sketches
+        # Return the reverse sketches, and sometimes groups. 
+        group_dict, reverse_sketches = trees_uppper_bounds(hole_options)
+        if see_groups:
+            return group_dict, reverse_sketches
+        else:
+            return reverse_sketches
 
     '''
     Generate a string representation of each hole option. 
@@ -297,7 +323,7 @@ def trees_uppper_bounds(trees: list[ast.AST]):
     # Group trees by root node type. 
     grouped_dict = group_trees_by_type(trees)
     # Anti-unify each group. 
-    return [antiunfy(group_items) for group, group_items in grouped_dict.items()]
+    return grouped_dict, [antiunfy(group_items) for group, group_items in grouped_dict.items()]
 
 '''
 Expand a single hole.  
@@ -343,16 +369,64 @@ def interact(sketches: list[ReverseSketch]):
 app = Flask(__name__)
 
 # Temporary memory structure; The array stores the JSON reps of the reverse sketches. 
+# JSON representation of reverse sketch class objects. 
 REVERSE_SKETCHES = []
+# Reverse sketch class objects. 
+REVERSE_SKETCHES_OBJS = []
+# Previously viewed reverse sketch Json representations. 
+REVERSE_SKETCHES_HISTORY = []
 
+'''
+Find the ReverseSketch object by ID.  
+@param ID
+@return the ReverseObject with that ID.
+'''
+def findObjByID(id: int) -> ReverseSketch:
+    global REVERSE_SKETCHES_OBJS
+    print("Objects: ", REVERSE_SKETCHES_OBJS)
+    for obj in REVERSE_SKETCHES_OBJS: 
+        if obj.id == id:
+            return obj
+        print("ID: ", obj.id, obj)
+    return None
+
+'''
+Find the ReverseSketch JSON rep by ID.  
+@param ID
+@return the reverse sketch JSON with that ID.
+'''
+def findJsonByID(id: int): 
+    global REVERSE_SKETCHES
+    for obj in REVERSE_SKETCHES: 
+        if obj['id'] == id: 
+            return obj
+    return None
+
+'''
+Find all of the constants that match the selected one.   
+@param ID
+@return a list of ASTs that equal the constant. 
+'''
+def findConstants(selected_option: str, hole_options: list[ast.AST]):
+    new_hole_options = []
+    for option in hole_options:
+        if (ast.unparse(option) == selected_option):
+            new_hole_options.append(option)
+    return new_hole_options
+
+# Routes.
 @app.route('/oversynth/api/v1.0/sketches', methods=['GET'])
 def get_sketches():
     global REVERSE_SKETCHES
+    global REVERSE_SKETCHES_OBJS
     # If reverse sketches is empty, populate with the highest-level sketches. 
     if not REVERSE_SKETCHES:
         trees = read_trees("input-file.txt")
+        # Generate the reverse sketches. 
+        _, reverse_sketches = trees_uppper_bounds(trees)
+        REVERSE_SKETCHES_OBJS = [obj for obj in reverse_sketches]
         # Set reverse sketches to a list of JSON objects for each reverse sketch. 
-        REVERSE_SKETCHES = [obj.generate_json() for obj in trees_uppper_bounds(trees)]
+        REVERSE_SKETCHES = [obj.generate_json() for obj in reverse_sketches]
         # Return a jsonified REVERSE_SKETCH.
         return jsonify(REVERSE_SKETCHES)
     # If the reverse sketches are not empty, return them. 
@@ -378,15 +452,42 @@ def get_hole(sketch_id, hole_id):
     return jsonify(REVERSE_SKETCHES[sketch_id]['subs'][hole_id])
 
 # TODO: Change to PUT
-@app.route('/oversynth/api/v1.0/sketches/<int:sketch_id>/<int:hole_id>', methods=['PUT'])
-def update_hole(sketch_id, hole_id):
+@app.route('/oversynth/api/v1.0/sketches/<int:sketch_id>/<int:hole_num>/<int:option_num>', methods=['GET'])
+def update_hole(sketch_id, hole_num, option_num):
     global REVERSE_SKETCHES
-    # If the reverse sketches are empty, abort. 
-    if not len(REVERSE_SKETCHES) or len(REVERSE_SKETCHES) <= sketch_id or len(REVERSE_SKETCHES[sketch_id]['subs']) <= hole_id:
-        abort(404)
-    # Retrieve the sketch. 
-    print(REVERSE_SKETCHES[sketch_id]['subs'][hole_id])
-    return []
+    global REVERSE_SKETCHES_OBJS
+    global REVERSE_SKETCHES_HISTORY
+
+    # Retrieve the reverse sketch object that matches the id. 
+    if len(REVERSE_SKETCHES):
+        selected_reverse_sketch = findObjByID(sketch_id)
+        print("Selected reverse sketch: ", selected_reverse_sketch)
+        print("Selected hole: ", hole_num)
+        print("Selected option: ", option_num)
+
+        # Retrieve the hole options for the selected hole. 
+        group_dict, hole_options = selected_reverse_sketch.expand_hole(hole_num, see_groups=True)
+        print("Group dictionary: ", group_dict)
+        print("Hole options: ", hole_options)
+        print("Hole options: ", list(map(lambda x: ast.unparse(x.sketch_AST), hole_options)))
+
+        # Retrieve trees that match the hole options.
+        if (all(isinstance(x.sketch_AST, ast.Constant) for x in hole_options)):
+            selected_group = group_dict[list(group_dict)[0]]
+            selected_constant = ((findJsonByID(sketch_id)['subs'])[hole_num])[option_num]
+            # Find all of the hole options that equal that constant and update the selected group.
+            selected_group = findConstants(selected_constant, selected_group)
+        else: 
+            selected_group = group_dict[list(group_dict)[option_num]]
+        new_trees = selected_reverse_sketch.recover_groups(hole_num, selected_group)
+
+        # Create new reverse sketches.
+        _, new_reverse_sketches = trees_uppper_bounds(new_trees)
+        print("Reverse sketches: ", list(map(lambda x: ast.unparse(x.sketch_AST), new_reverse_sketches)))
+        REVERSE_SKETCHES_OBJS = [obj for obj in new_reverse_sketches]
+        REVERSE_SKETCHES = [obj.generate_json() for obj in new_reverse_sketches]
+    return jsonify(REVERSE_SKETCHES)
+    
 
 @app.errorhandler(404)
 def not_found(error):
