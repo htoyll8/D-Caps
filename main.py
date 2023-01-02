@@ -50,6 +50,7 @@ class TreeGeneralizer(ast.NodeTransformer):
     def __init__(self, del_dict: dict[ast.AST, list[ast.AST]]) -> None:
         self.holes = []
         self.del_dict = del_dict
+        self.counter = 0
 
     def visit(self, node: ast.AST) -> Any:
         method = 'visit_' + node.__class__.__name__
@@ -62,16 +63,15 @@ class TreeGeneralizer(ast.NodeTransformer):
     
     def generic_visit(self, node: ast.AST) -> Any:
         hole = ast.Name(id=f'?', ctx="")
+        hole.hole_id = self.counter + 1
         if node.marked:
-            # print("Retuning hole... ", type(node), ast.unparse(node), ast.unparse(hole))
-            # print("Deletion dictionary: ", self.del_dict)
             for k,v in self.del_dict.items(): 
                 if (is_equal(k, node)):
-                    l = v
-                    l.append(k)
-                    if all(isinstance(item, type(k)) for item in l):
+                    if all(isinstance(item, type(k)) for item in v):
                         common_type = extract_common_type(k)
                         hole = ast.Name(id=f'{common_type}?', ctx="")
+            # Increment id for next hole. 
+            self.counter += 1
             return hole
         return super().generic_visit(node)
 
@@ -238,31 +238,41 @@ def get_hole_idxs(holes_dict, idxs):
     holes_list = list(holes_dict)
     for idx in idxs:
         hole_key = holes_list[idx]
-        print("getting key: ", ast.unparse(hole_key))
         new_holes_list.append(holes_dict[hole_key])
     return new_holes_list
 
 def expand_hole_util(to_expand_holes):
     expanded_holes = []
     for to_expand_hole in to_expand_holes:
-        print("To expand hole: ", list(map(lambda x: ast.unparse(x), to_expand_hole)))
+        # print("To expand hole: ", list(map(lambda x: ast.unparse(x), to_expand_hole)))
         sketches = trees_uppper_bounds_no_expand(to_expand_hole)
-        print("Sketches: ", sketches)
+        # print("Sketches: ", sketches)
         expanded_holes.append(sketches)
     return expanded_holes
-    
+
 # holes_dict: previous deletion dictionary.    
 def expand_hole(sketch_ast, holes_dict):
     to_expand = get_holes_from_user()
     # Values of the holes (keys) to be expanded. 
     to_expand_holes = get_hole_idxs(holes_dict, to_expand)
+    # Dictionary: <sketch, sub-expressions that match that sketch>
     expanded_holes = expand_hole_util(to_expand_holes)
-    l = list(map(lambda x: list(x.keys()), expanded_holes))
-    products = list(product(*l))
-    print("Products: ", l)
-    return l
-    
+    for expanded_hole in expanded_holes: 
+        for k,v in expanded_hole.items(): 
+            l = list(map(lambda x: ast.unparse(x), v))
+            for el in l: 
+                print(el)
+            print("==========")
+        print("======================================")
 
+    # Subexpressions sketches generated from expanded holes. 
+    holes = list(map(lambda x: list(x.keys()), expanded_holes))
+    # for hole in holes: 
+    #     for sketch in hole: 
+    #         print("Sketch: ", sketch)
+    #         to_expand = get_holes_from_user()
+    return holes
+    
 def trees_uppper_bounds_no_expand(trees):
     # Group trees.
     grouped_dict = group_trees_by_type(trees)
@@ -271,12 +281,13 @@ def trees_uppper_bounds_no_expand(trees):
     for _, group_items in grouped_dict.items():
         if (all(isinstance(x, ast.Constant) for x in group_items)):
             for item in group_items: 
+                # reverse_sketches.setdefault(ast.unparse(item), []).append(item)
                 reverse_sketches.setdefault(ast.unparse(item), []).append(item)
         else: 
             del_dict = compare_trees(group_items[0], group_items[1:], {})
-            _, reverse_sketch, _ = generalize_tree(group_items[0], del_dict)
+            reverse_sketch_ast, reverse_sketch, _ = generalize_tree(group_items[0], del_dict)
             reverse_sketches.setdefault(reverse_sketch, []).extend(group_items)
-    return reverse_sketches
+    return reverse_sketches    
 
 def trees_uppper_bounds(trees):
     # Group trees.
@@ -293,114 +304,26 @@ def trees_uppper_bounds(trees):
         #     print("Zipped: ", list(zip(list(map(lambda x: ast.unparse(x), v)), list(map(lambda x: ast.unparse(x), group_items[1:])))))
         #     print("Zipped: ", list(zip(v, group_items[1:])))
         print("Sketch: ", reverse_sketch)
-        if (del_dict):
-            expand_hole(reverse_sketch_ast, del_dict)
+        # if (del_dict):
+        #     opts = expand_hole(reverse_sketch_ast, del_dict)
+        #     print(opts)
     return grouped_dict, reverse_sketches
 
-def expand_hole_2(original_sketch, l):
-    all_v1 = []
-    for el in l: 
-        v1 = el[0]
-        v2 = el[1]
-        all_v1.append(v1)
-        # print("1", v1, "2", v2[0])
-    if len(all_v1) > 1:
-        grouped_dict = group_trees_by_type(all_v1)
-        for root_type, group_items in grouped_dict.items():
-            del_dict = compare_trees(all_v1[0], all_v1[1:], {})
-            if group_items != all_v1:
-                reverse_sketch_ast, reverse_sketch, _ = generalize_tree(all_v1[0], del_dict)
-                # print("New rv: ", reverse_sketch)
-            elif ast.unparse(group_items[0]) != original_sketch: 
-                print_del_dict(del_dict)
-                # print("Original sketch: ", original_sketch)
-                print("Here are the options: ", list(map(lambda x: ast.unparse(x), group_items)))
-                for k,v in del_dict.items(): 
-                    v.insert(0, k)
-                    print("Zipped: ", list(zip(list(map(lambda x: ast.unparse(x), v)), list(map(lambda x: ast.unparse(x), group_items)))))
-                    # { hole_val: list of candidate programs that have that hole val. }
-                    hole_to_programs_dict = convert_tups_to_dict(list(zip(v, group_items)))
-                    # Possible values for each hole. 
-                    hole_to_programs_dict_keys = hole_to_programs_dict.keys()
-                    print("Looking", list(map(lambda x: ast.unparse(x), hole_to_programs_dict_keys)))
-                    grouped_holes_by_hole_val = group_by_str(hole_to_programs_dict_keys)
-                    print("groupies: ", grouped_holes_by_hole_val)
+def find_intermediate_sketches(trees, hole=0):
+    upperbound = trees_uppper_bounds_no_expand(trees)
+    print(list(upperbound.keys())[0])
 
-                    new_hole_to_programs_dict = {}
-                    for hole_val, group_items in grouped_holes_by_hole_val.items():
-                        new_group_items = []
-                        for item in group_items: 
-                            new_group_items.append((item, hole_to_programs_dict[item]))
-                        new_hole_to_programs_dict.setdefault(hole_val, new_group_items)
-                    print(new_hole_to_programs_dict)
-                    second_grouped = group_trees_by_type(new_hole_to_programs_dict)
-
-
-                    print("Here: ", new_hole_to_programs_dict.values())
-                    # if (all(lambda x: len(x) != 1 for x in list(new_hole_to_programs_dict.values()))):
-                    #     third_dict = {}
-                    #     for kg, kv in new_hole_to_programs_dict.items():
-                    #         print("KV: ", kv)
-                    #         third_list = []
-                    #         del_dict = compare_trees(kv[0], kv[1:], {})
-                    #         reverse_sketch_ast, reverse_sketch, _ = generalize_tree(kv[0], del_dict)
-                    #         for y in kv: 
-                    #             third_list.extend(new_hole_to_programs_dict[y])
-                    #         third_dict.setdefault(reverse_sketch, third_list)
-                    #     print("Yo: ", third_dict)
-                    # else: 
-                    #     print(new_hole_to_programs_dict.keys())
-
-
-def trees_uppper_bounds_new(trees, expand):
-    # Group trees by the type of their root node. 
-    grouped_dict = group_trees_by_type(trees)
-    for root_type, group_items in grouped_dict.items():
-        # All of the subexpressions that can fill each hole.  
-        hole_dict = compare_trees(group_items[0], group_items[1:], {})
-        reverse_sketch_ast, reverse_sketch, _ = generalize_tree(group_items[0], hole_dict)
-        print("Sketch: ", reverse_sketch)
-        to_expand_hole_options = []
-        for k,v in hole_dict.items(): 
-            # print("Zipped: ", list(zip(list(map(lambda x: ast.unparse(x), v)), list(map(lambda x: ast.unparse(x), group_items[1:])))))
-            # { hole_val: list of candidate programs that have that hole val. }
-            hole_to_programs_dict = convert_tups_to_dict(list(zip(v, group_items[1:])))
-            # Possible values for each hole. 
-            hole_to_programs_dict_keys = hole_to_programs_dict.keys()
-            new_hole_to_programs_dict = {}
-            grouped_holes_by_hole_val = group_by_str(hole_to_programs_dict_keys)
-            
-            for hole_val, group_items in grouped_holes_by_hole_val.items():
-                new_group_items = []
-                for item in group_items: 
-                    # print("Item: ", ast.unparse(item), ast.unparse(hole_to_programs_dict[item]))
-                    new_group_items.append((item, hole_to_programs_dict[item]))
-                # print("================================")
-                # print("Adding to new dictionary: ", list(map(lambda x: ast.unparse(x), new_group_items)))
-                new_hole_to_programs_dict.setdefault(hole_val, new_group_items)
-            second_grouped = group_trees_by_type(new_hole_to_programs_dict)
-            # print("Second-grouped: ", second_grouped)
-
-            third_dict = {}
-            for kg, kv in second_grouped.items():
-                # print("KV: ", kv)
-                third_list = []
-                del_dict = compare_trees(kv[0], kv[1:], {})
-                reverse_sketch_ast, reverse_sketch, _ = generalize_tree(kv[0], del_dict)
-                for y in kv: 
-                    third_list.extend(new_hole_to_programs_dict[y])
-                third_dict.setdefault(reverse_sketch, third_list)
-   
-            to_expand_hole_options.append(third_dict)
-            # print("Third dictionary: ", list(third_dict.keys()))
-            # print("The big D: ", new_hole_to_programs_dict)
-       
-        if expand:
-            idx = int(input(f"Hole to expand? 0-{len(to_expand_hole_options)-1}"))
-            print("Expanding... ")
-            for k in to_expand_hole_options[idx]:
-                print("Key: ", k)
-                expand_hole_2(k, to_expand_hole_options[idx][k])
+    intermediate_values = dict()
+    for c in combinations(trees, 2):
+        del_dict = compare_trees(c[0], c[1:], {})
+        if del_dict:
+            key = list(del_dict)[hole]
+            updated_del_dict = { key: del_dict[key] }
+            _, reverse_sketch, _ = generalize_tree(c[0], updated_del_dict)
+            # print(reverse_sketch)
+            intermediate_values.setdefault(reverse_sketch, []).extend(c)
+    for inter in intermediate_values:
+        print(inter)
 
 def group_by_str(l):
     d = {}
@@ -413,7 +336,6 @@ def group_by_str(l):
             d.setdefault(el, []).append(el)
     # print("Grouped by str: ", d)
     return d
-
 
 def convert_tups_to_dict(l):
     res = {}
@@ -493,6 +415,7 @@ if __name__ == "__main__":
     ]
     trees = read_file("input-file.txt")
     # groups, sketches = trees_uppper_bounds(trees)
+    # find_intermediate_sketches(trees)
     trees_uppper_bounds(trees)
     # trees_uppper_bounds_new(trees, True)
 
