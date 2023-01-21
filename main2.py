@@ -98,6 +98,7 @@ class ReverseSketch:
         global ID_COUNTER
         # Generate the hole id based on the provided hole number. 
         hole_id = f"x_{hole_num}"
+        print("Myself: ", self)
         # Array to store the options for the expanded hole. 
         hole_options = []
         # If there are not substitutions, this is a concrete program.
@@ -110,6 +111,16 @@ class ReverseSketch:
                 return to_return
             else:
                 return [self]
+        # There isn't a hole there anymore. 
+        elif hole_id not in self.holes:
+            print("Im in here!")
+            # Generate a list of grouped programs and reverse sketches that represent the grouped programs. 
+            group_dict, reverse_sketches = trees_uppper_bounds(self.trees)
+             # Return the revrse sketches, and sometimes the grouped hole_options. 
+            if see_groups:
+                return group_dict, reverse_sketches
+            else:
+                return reverse_sketches
         # Traverse the list of trees.
         else: 
             for tree_id, tree in enumerate(self.trees): 
