@@ -18,7 +18,45 @@ class ReverseSketch:
         self.trees = trees
         self.subs = substitutions
         # x_0, ... , x_n for each hole. 
+        self.clickable_sketch = None
         self.holes = holes 
+        self.parent_data = {}
+        self.children = []
+
+    '''
+    Update the parent data. 
+    @param 
+    @return 
+    '''
+    def update_parent_data(self, sketch_id, hole_num, option_num):
+        self.parent_data['sketch_id'] = sketch_id
+        self.parent_data['hole_num'] = hole_num
+        self.parent_data['option_num'] = option_num
+
+    '''
+    Does the parent meta data match a current parent object. 
+    @param 
+    @return 
+    '''
+    def matches_parent_data(self, sketch_id, hole_num, option_num):
+        print(self.parent_data)
+        return self.parent_data['sketch_id'] == sketch_id and self.parent_data['hole_num'] == hole_num and self.parent_data['option_num'] == option_num
+
+    '''
+    Update the children list. 
+    @param 
+    @return 
+    '''
+    def update_children(self, children):
+        self.children.extend(children)
+
+    '''
+    Update the clickable sketch. 
+    @param 
+    @return 
+    '''
+    def update_clickable_sketch(self, clickable_sketch):
+        self.clickable_sketch = clickable_sketch
 
     '''
     Find all of the original trees that have any of the substitutions. 
@@ -62,19 +100,32 @@ class ReverseSketch:
         hole_id = f"x_{hole_num}"
         # Array to store the options for the expanded hole. 
         hole_options = []
+        # If there are not substitutions, this is a concrete program.
+        print("Checking my subs: ", self.subs)
+        if self.subs == [{}]:
+            print("In here...")
+            if see_groups: 
+                to_return = {type(self.sketch_AST): [self]}, [self]
+                print("To return: ", to_return)
+                return to_return
+            else:
+                return [self]
         # Traverse the list of trees.
-        for tree_id, tree in enumerate(self.trees): 
-            # The substitution of the current tree for x_i. 
-            tree_substitution = self.subs[tree_id][hole_id]
-            # Add the substitution to the list of options.
-            hole_options.append(tree_substitution) 
-        # Generate a list of grouped programs and reverse sketches that represent the grouped programs. 
-        group_dict, reverse_sketches = trees_uppper_bounds(hole_options)
-        # Return the revrse sketches, and sometimes the grouped hole_options. 
-        if see_groups:
-            return group_dict, reverse_sketches
-        else:
-            return reverse_sketches
+        else: 
+            for tree_id, tree in enumerate(self.trees): 
+                # The substitution of the current tree for x_i. 
+                print("Trying to get substitutions for: ", self)
+                tree_substitution = self.subs[tree_id][hole_id]
+                print("Tree substitution: ", tree_substitution, " for: ", self)
+                # Add the substitution to the list of options.
+                hole_options.append(tree_substitution) 
+            # Generate a list of grouped programs and reverse sketches that represent the grouped programs. 
+            group_dict, reverse_sketches = trees_uppper_bounds(hole_options)
+            # Return the revrse sketches, and sometimes the grouped hole_options. 
+            if see_groups:
+                return group_dict, reverse_sketches
+            else:
+                return reverse_sketches
     
     '''
     Generate a string representation of each hole option. 
@@ -183,8 +234,14 @@ def group_trees_by_type(trees: list[ast.AST]) -> list[list[ast.AST]]:
     for tree in trees:
         # Parse body. 
         if (isinstance(tree, ast.Module)):
-            body: ast.AST = tree.body[0]
-            expr = body.__dict__['value']
+            print("Dictionary: ", tree.__dict__)
+            if isinstance(tree.body[0], ast.FunctionDef):
+                body: ast.AST = tree.body[0]
+                print("Function body: ", body)
+                expr = body
+            else:
+                body: ast.AST = tree.body[0]
+                expr = body.__dict__['value']
         else:
             expr = tree
 
@@ -348,6 +405,28 @@ def read_trees(file_name) -> list[ast.AST]:
     with open(file_name) as f:
         return [ast.parse(line.strip()) for line in f.readlines()]
 
+'''
+Read Python programs from a file. 
+@param 
+@return the most specific generalization of n trees. 
+'''
+def read_multi_line_trees():
+    multi_line_trees = [
+        """def foo():
+        print("hello world")
+        print("Working hard...")
+        return 5
+        """, 
+        """def boo():
+        return 6
+        """
+    ]
+    trees = [ast.parse(tree) for tree in multi_line_trees]
+    dumped = [ast.dump(tree) for tree in trees]
+    unparsed = [ast.unparse(tree) for tree in trees]
+    print("Unparsed: ", unparsed)
+    return trees 
+
 
 def interact(sketches: list[ReverseSketch]):
     print("Options: ")
@@ -383,6 +462,8 @@ REVERSE_SKETCHES_OBJS = []
 REVERSE_SKETCHES_HISTORY = []
 # Previously viewed reverse sketch class objects. 
 REVERSE_SKETCHES_HISTORY_OBJS = []
+# The previously seen options. 
+PREVIOUS_OPTIONS = []
 
 '''
 Generate a color map.
@@ -440,15 +521,16 @@ Generate a sketch with the hole option filled in.
 @param ID
 @return more specific sketch with the hole number filled in.
 '''
-def createSketchWithFilledHole(host, version, hole_num, sketch_id, sketch, option_idx, option, longest_hole_length):
+def createSketchWithFilledSpacedHole(host, version, hole_num, reverse_sketches, sketch_id, sketch, option_idx, option):
     hole_counter = 0
     updated_sketch = "<td>"
     # Store the indices of the holes in the sketch. 
     for ch in sketch:
         if(ch == '?'):
             if hole_counter == hole_num:
-                updated_sketch += f'</td><td><a href={host}/oversynth/api/{version}/sketches/{sketch_id}/{hole_num}/{option_idx}>{option}</a></td><td>'
-                # Add space after the hole option to align all of the sketches.  
+                print("checking options: ", reverse_sketches[option_idx].id)
+                updated_sketch += f'</td><td><a href={host}/oversynth/api/{version}/sketches/{reverse_sketches[option_idx].id}/{hole_num}>{option}</a></td><td>'
+                # updated_sketch += f'</td><td><a href={host}/oversynth/api/{version}/sketches/{sketch_id}/{hole_num}/{option_idx}>{option}</a></td><td>' 
             else: 
                 updated_sketch += ch
             hole_counter += 1
@@ -456,6 +538,27 @@ def createSketchWithFilledHole(host, version, hole_num, sketch_id, sketch, optio
             updated_sketch += ch
     updated_sketch += "</td>"
     print("Updated final: ", updated_sketch)
+    return updated_sketch 
+
+'''
+Generate a sketch with the hole option filled in. 
+@param ID
+@return more specific sketch with the hole number filled in.
+'''
+def createSketchWithFilledHole(host, version, hole_num, sketch_id, sketch, option_idx, option):
+    hole_counter = 0
+    updated_sketch = ""
+    # Store the indices of the holes in the sketch. 
+    for ch in sketch:
+        if(ch == '?'):
+            if hole_counter == hole_num:
+                updated_sketch += f'{option}'
+                # Add space after the hole option to align all of the sketches.  
+            else: 
+                updated_sketch += ch
+            hole_counter += 1
+        else:
+            updated_sketch += ch
     return updated_sketch 
 
 '''
@@ -471,9 +574,43 @@ Generate a clickable options.
 @param ID
 @return a list of clickable options.
 '''
+# def createClickableOptions2(host, version, option_sketches, options, sketch_id, hole_idx):
+#     clickable_options = []
+#     for option_idx, option in enumerate(options): 
+#         updated_sketch = ""
+#         # Store the indices of the holes in the sketch. 
+#         for ch in option:
+#             if(ch == '?'):
+#                 for o in option_sketches:
+#                     print("Looking at option sketches: ", o)
+#                 print("Checking id of o: ", option_sketches[option_idx].id)
+#                 print("to add: ", f'<a href={host}/oversynth/api/{version}/sketches/{option_sketches[option_idx].id}/{0}>{ch}</a>')
+#                 updated_sketch += f'<a href={host}/oversynth/api/{version}/sketches/{option_sketches[option_idx].id}/{0}>{ch}</a>'
+#                 print("updated sketch intermediate: ", updated_sketch)
+#             else: 
+#                 updated_sketch += ch
+#         print("Final sketch: ", updated_sketch)
+#         clickable_options.append(updated_sketch)
+#     return clickable_options
+
+'''
+Generate a clickable options. 
+@param ID
+@return a list of clickable options.
+'''
 def createClickableOptions(host, version, options, sketch_id, hole_idx):
-    print("Option (in here): ", options)
-    return [f'<a href={host}/oversynth/api/{version}/sketches/{sketch_id}/{hole_idx}/{option_idx}>{option}</a>' for option_idx, option in enumerate(options)]
+    clickable_options = []
+    for option_idx, option in enumerate(options): 
+        updated_sketch = ""
+        # Store the indices of the holes in the sketch. 
+        for ch in option:
+            if(ch == '?'):
+                updated_sketch += f'<a href={host}/oversynth/api/{version}/sketches/{sketch_id}/{hole_idx}/{option_idx}>{ch}</a>'
+            else: 
+                updated_sketch += ch
+        print("Final sketch: ", updated_sketch)
+        clickable_options.append(updated_sketch)
+    return clickable_options
 
 '''
 Find the ReverseSketch object by ID.  
@@ -482,11 +619,11 @@ Find the ReverseSketch object by ID.
 '''
 def findObjByID(id: int) -> ReverseSketch:
     global REVERSE_SKETCHES_HISTORY_OBJS
-    print("Objects: ", REVERSE_SKETCHES_HISTORY_OBJS)
+    # print("Objects: ", REVERSE_SKETCHES_HISTORY_OBJS)
     for obj in REVERSE_SKETCHES_HISTORY_OBJS: 
         if obj.id == id:
             return obj
-        print("ID: ", obj.id, obj)
+        # print("ID: ", obj.id, obj)
     return None
 
 '''
@@ -502,6 +639,26 @@ def findJsonByID(id: int):
     return None
 
 '''
+Find the ReverseSketch object by clickable sketch.  
+@param ID
+@return the ReverseObject with that clickable sketch.
+'''
+def findJsonByParentData(sketch_id: int, hole_id: int, option_num: int) -> ReverseSketch:
+    global REVERSE_SKETCHES_HISTORY_OBJS
+    for obj in REVERSE_SKETCHES_HISTORY_OBJS: 
+        if obj.parent_data:
+            if obj.matches_parent_data(sketch_id, hole_id, option_num):
+                return obj
+    return None
+
+def print_json():
+    global REVERSE_SKETCHES_HISTORY_OBJS
+    for obj in REVERSE_SKETCHES_HISTORY_OBJS: 
+        print("id: ", obj.id)
+        print("sketch: ", ast.unparse(obj.sketch_AST))
+        print("parent data: ", obj.parent_data)
+
+'''
 Find the length of the longest hole option.  
 @param 
 @return the length of the longest hole options.
@@ -511,6 +668,57 @@ def get_length_of_longest_hole_option(hole_options):
     for option in hole_options:
         max_length = max(max_length, len(option))
     return max_length
+
+'''
+Print nested children utility.  
+@param 
+@return.
+'''
+def pretty_print_children_util(obj: ReverseSketch):
+    """ return a family tree for a Person object """
+
+    children = obj.children
+
+    if not children:
+        # this person has no children, recursion ends here
+        return {'name': ast.unparse(obj.sketch_AST), 'children': []}
+
+    # this person has children, get every child's family tree
+    return {
+        'name': ast.unparse(obj.sketch_AST),
+        'children': [pretty_print_children_util(findObjByID(child)) for child in children],
+    }
+
+'''
+Print nested children.  
+@param 
+@return.
+'''
+def pretty_print_children():
+    print("Pretty Print!")
+    overview = []
+    for obj in REVERSE_SKETCHES_ORIGINAL_OBJS:
+        family_tree = pretty_print_children_util(obj)
+        overview.append(family_tree)
+    print("Overview loook: ", overview)
+    return overview
+
+def generate_navigation(overview, html_overview = ""):
+    html_overview += "<ul>"
+    for family_tree in overview: 
+        # Create
+        # print("Family tree: ", family_tree)
+        html_overview += f"<li><span class='caret'>{family_tree['name']}"
+        html_overview += f"<ul class='nested'>"
+        for child in family_tree['children']:
+            if child['children']:
+                generate_navigation(child, html_overview)
+            else: 
+                html_overview += f"<li>{child['name']}</li>"
+        html_overview += "</ul>"
+        html_overview += f"</li>"
+    html_overview += "</ul>"
+    return html_overview
 
 # Routes.
 @app.route('/oversynth/api/v1.0/sketches', methods=['GET'])
@@ -523,7 +731,7 @@ def get_sketches():
         # Host link.
         host = "http://127.0.0.1:5000/"
         # ASTs that represent the candidate programs.
-        trees = read_trees("input-file.txt")
+        trees = read_trees("ex-input.txt")
         # Version 
         version = "v1.0"
         # Generate the reverse sketches. 
@@ -540,7 +748,10 @@ def get_sketches():
         REVERSE_SKETCHES_OBJS = [obj for obj in reverse_sketches]
         # Update the JSON representations to include sketches with clickable holes. 
         REVERSE_SKETCHES = [obj.generate_json() for obj in reverse_sketches]
-        # Generare clickable sketches
+        # Generate the clickable sketches.
+        map(lambda sketch: sketch.update_clickable_sketch(createClickableSketch(host, version, sketch.id, ast.unparse(sketch.sketch_AST))), reverse_sketches)
+        # PREVIOUS_OPTIONS.extend(list(map(lambda x: createClickableSketch(host, version, x.id, ast.unparse(x.sketch_AST)), reverse_sketches)))
+        # Generate clickable sketches.
         clickable_sketches = updateJsonStringReps(host, version, REVERSE_SKETCHES_ORIGINAL)
         # Return a jsonified REVERSE_SKETCH.
         return render_template("home.html", sketches_len=len(REVERSE_SKETCHES), sketches=clickable_sketches)
@@ -557,13 +768,94 @@ def get_sketch(sketch_id):
         abort(404)
     # If the reverse sketches are not empty, return the sketch_id-th sketch. 
     return jsonify(REVERSE_SKETCHES[sketch_id])
-    return render_template("option.html", sketches_len=len(REVERSE_SKETCHES), sketches=REVERSE_SKETCHES)
 
 @app.route('/oversynth/api/v1.0/sketches/<int:sketch_id>/<int:hole_id>', methods=['GET'])
 def get_hole(sketch_id, hole_id):
     global REVERSE_SKETCHES
     global REVERSE_SKETCHES_HISTORY
     global REVERSE_SKETCHES_ORIGINAL
+    global PREVIOUS_OPTIONS
+
+    '''
+    Generate new sketches that represent the sketch with a filled hole.   
+    @param 
+    @return A reverse sketch instance that represents the filled in sketch.
+    '''
+    def generate_new_sketches(selected_reverse_sketch, hole_num) -> list[ast.AST]:
+        # Store the new sketches. 
+        new_sketches = []
+        # Retrieve the hole options for the selected hole. 
+        group_dict, hole_options = selected_reverse_sketch.expand_hole(hole_num, see_groups=True)
+        # This is a concrete program with no holes. 
+        if len(hole_options) == 1: 
+            sketch = hole_options[0]
+            # Update the parent data. 
+            parent_id = selected_reverse_sketch.id
+            print("parent id: ", parent_id)
+            print("cur parent data: ", sketch.parent_data)
+            sketch.update_parent_data(parent_id, hole_num, 0)
+            print("Parent info: ", sketch.parent_data)
+            # Set teh concrete program to be the new reverse sketch. 
+            new_sketches = [sketch]
+            # Add the new sketch to the REVERSE SKETCHES. 
+            REVERSE_SKETCHES_HISTORY_OBJS.extend(hole_options)
+            # Update the sketch history array by adding the current sketches 
+            REVERSE_SKETCHES_HISTORY.extend([obj.generate_json() for obj in hole_options])
+        else:
+            for option_num, hole_option in enumerate(hole_options):
+                # print(f'{option_num}: {hole_option}')
+                # Retrive all of the trees that have that hole option. 
+                if (isinstance(hole_option.sketch_AST, ast.Name)):
+                    selected_group = group_dict[f'Name-{ast.unparse(hole_option.sketch_AST)}']
+                elif (isinstance(hole_option.sketch_AST, ast.Constant)):
+                    selected_group = group_dict[f'Constant-{ast.unparse(hole_option.sketch_AST)}']
+                else: 
+                    selected_group = group_dict[list(group_dict)[option_num]]
+                # Trees that have the selection option in the selected hole. 
+                new_trees = selected_reverse_sketch.recover_groups(hole_num, selected_group)
+                # Create new reverse sketches.
+                _, new_reverse_sketches = trees_uppper_bounds(new_trees)
+                # Update the clickable options. 
+                for sketch in new_reverse_sketches:
+                    # Update the parent data. 
+                    sketch.update_parent_data(selected_reverse_sketch.id, hole_num, option_num)
+                    print("Updating the parent data: ", sketch, sketch.parent_data)
+                # Update the list of new sketches. 
+                new_sketches.extend(new_reverse_sketches)
+                # Add the new sketch to the REVERSE SKETCHES. 
+                REVERSE_SKETCHES_HISTORY_OBJS.extend(new_sketches)
+                # Update the sketch history array by adding the current sketches 
+                REVERSE_SKETCHES_HISTORY.extend([obj.generate_json() for obj in new_sketches])
+        print("New sketches: ", list(map(lambda x: x, new_sketches)))
+        return new_sketches
+   
+    '''
+    Generate a color map.   
+    @param 
+    @return.
+    '''
+    def generate_color_map(selected_reverse_sketch: ReverseSketch, hole_num):
+        color_counter = 0 
+        key_counter = 0
+        color_key_map = dict()
+        color_value_map = dict()
+        group_dict, hole_options = selected_reverse_sketch.expand_hole(hole_num, see_groups=True)
+        # If its a concrete program....
+        if len(hole_options) > 1:
+            for k,v in group_dict.items(): 
+                # Assign the key color. 
+                if (hole_options[key_counter] not in color_key_map):
+                    color_key_map[ast.unparse(hole_options[key_counter].sketch_AST)] = COLORS[color_counter]
+                # Assing each value a color. 
+                for tree_id, tree in enumerate(selected_reverse_sketch.trees):
+                    tree_substitution = selected_reverse_sketch.subs[tree_id][f"x_{hole_id}"]
+                    if tree_substitution in v: 
+                        color_value_map.setdefault(ast.unparse(tree), COLORS[color_counter])
+                # Update hte counters for the hole options and the colors. 
+                key_counter += 1
+                color_counter += 1
+        return color_key_map, color_value_map
+
     # Host link.
     host = "http://127.0.0.1:5000/"
     # Version 
@@ -576,43 +868,48 @@ def get_hole(sketch_id, hole_id):
     if not len(REVERSE_SKETCHES) or not selected_reverse_sketch_json:
         abort(404)
     else: 
-        # Update the JSON representations to include sketches with clickable holes. 
-        clickable_sketches = updateJsonStringReps(host, version, REVERSE_SKETCHES_ORIGINAL)
-        # Retrieve the length of the longest substitution. 
-        longest_hole_length = get_length_of_longest_hole_option(selected_reverse_sketch_json['subs'][hole_id])
-        # Create filled hole options. 
-        filled_options = [createSketchWithFilledHole(host, version, hole_id, sketch_id, selected_reverse_sketch_json['sketch_str'], option_idx, option, longest_hole_length) for option_idx, option in enumerate(selected_reverse_sketch_json['subs'][hole_id])]
-        # Update the hole options so they're clickables
-        clickable_options = createClickableOptions(host, version, filled_options, sketch_id, hole_id)
-        # Retrieve the hole options for the selected hole. 
-        group_dict, hole_options = selected_reverse_sketch.expand_hole(hole_id, see_groups=True)
-        color_counter = 0 
-        key_counter = 0
-        color_key_map = dict()
-        color_value_map = dict()
-        for k,v in group_dict.items(): 
-            # Assign the key color. 
-            if (hole_options[key_counter] not in color_key_map):
-                color_key_map[ast.unparse(hole_options[key_counter].sketch_AST)] = COLORS[color_counter]
-            # Assing each value a color. 
-            for tree_id, tree in enumerate(selected_reverse_sketch.trees):
-                tree_substitution = selected_reverse_sketch.subs[tree_id][f"x_{hole_id}"]
-                if tree_substitution in v: 
-                    color_value_map.setdefault(ast.unparse(tree), COLORS[color_counter])
-            # Update hte counters for the hole options and the colors. 
-            key_counter += 1
-            color_counter += 1
-        # Return the options and concrete groups. 
-        return render_template("options.html", sketches_len=len(clickable_sketches), 
+        # Create Reverse Sketches for the filled options. 
+        new_reverse_sketches = generate_new_sketches(selected_reverse_sketch, hole_id)
+        print("Got past here....")
+        # Create filled and spaces hole options. 
+        if len(new_reverse_sketches) == 1:
+            filled_spaced_options = [ast.unparse(new_reverse_sketches[0].sketch_AST)]
+            # Create an empty list for clickable options since there are no holes. 
+            clickable_options = []
+        else:
+            filled_spaced_options: list[str] = [createSketchWithFilledSpacedHole(host, version, hole_id, new_reverse_sketches,sketch_id, selected_reverse_sketch_json['sketch_str'], option_idx, option) for option_idx, option in enumerate(selected_reverse_sketch_json['subs'][hole_id])]
+            # Update the hole options so they're clickables
+            clickable_options: list[str] = createClickableOptions(host, version, filled_spaced_options, sketch_id, hole_id)
+        # Generate a clickable sketch of the current/selected reverse sketch. 
+        clickable_selected_sketch = selected_reverse_sketch.clickable_sketch
+        # Retrieve all of the option ids. 
+        for option_num in range(len(filled_spaced_options)):
+            print(sketch_id, hole_id, "Option_num: ", option_num)
+        new_reverse_sketches_id = [findJsonByParentData(sketch_id, hole_id, option_num).id for option_num in range(len(filled_spaced_options))]
+        # Update the selected sketch's children attribute. 
+        selected_reverse_sketch.update_children(new_reverse_sketches_id)
+        # Generate a color map. 
+        color_value_map = {}
+        _, color_value_map = generate_color_map(selected_reverse_sketch, hole_num=hole_id)
+        # Pretty print the entire space of programs. 
+        # overview_tree = pretty_print_children()
+        overview_tree = []
+        print("Overview: ", overview_tree)
+        # html_overview = generate_navigation(overview_tree)
+        html_overview = []
+        # print("Html overview: ", html_overview)
+        return render_template("options.html", 
                 selected_sketch=createClickableSketch2(host, version, sketch_id, selected_reverse_sketch_json['sketch_str'], hole_id),
-                # sketches=clickable_sketches, 
                 options_len=len(clickable_options), 
                 options=clickable_options, 
+                prev_options_len=len(PREVIOUS_OPTIONS),
+                prev_options=PREVIOUS_OPTIONS,
                 len=len(selected_reverse_sketch.trees), 
                 programs=color_value_map, 
                 colors=COLORS, 
                 history_len=len(REVERSE_SKETCHES_HISTORY),
-                prev_sketches=updateJsonStringReps(host, version, REVERSE_SKETCHES_HISTORY))
+                prev_sketches=updateJsonStringReps(host, version, REVERSE_SKETCHES_HISTORY),
+                overview=html_overview)
 
 # TODO: Change to PUT
 @app.route('/oversynth/api/v1.0/sketches/<int:sketch_id>/<int:hole_num>/<int:option_num>', methods=['GET'])
@@ -621,15 +918,13 @@ def update_hole(sketch_id, hole_num, option_num):
     global REVERSE_SKETCHES_OBJS
     global REVERSE_SKETCHES_HISTORY
     global REVERSE_SKETCHES_ORIGINAL
-    # Host link.
-    host = "http://127.0.0.1:5000/"
-    # Version 
-    version = "v1.0"
-    # JSON representation of the selected sketch. 
-    selected_reverse_sketch_json = findJsonByID(sketch_id)
-    # The Reverse Sketch class instance of the selected sketch. 
-    selected_reverse_sketch = findObjByID(sketch_id)
-    if len(REVERSE_SKETCHES) and selected_reverse_sketch:
+
+    '''
+    Generate new sketches that represent the sketch with a filled hole.   
+    @param 
+    @return.
+    '''
+    def generate_new_sketches(selected_reverse_sketch):
         # Retrieve the hole options for the selected hole. 
         group_dict, hole_options = selected_reverse_sketch.expand_hole(hole_num, see_groups=True)
         # Retrieve trees that match the hole options.
@@ -640,6 +935,21 @@ def update_hole(sketch_id, hole_num, option_num):
             selected_group = group_dict[f'Constant-{selected_constant}']
         else: 
             selected_group = group_dict[list(group_dict)[option_num]]
+        return selected_group
+
+    # Host link.
+    host = "http://127.0.0.1:5000/"
+    # Version 
+    version = "v1.0"
+    # JSON representation of the selected sketch. 
+    selected_reverse_sketch_json = findJsonByID(sketch_id)
+    # The Reverse Sketch class instance of the selected sketch. 
+    selected_reverse_sketch = findObjByID(sketch_id)
+    # 
+    if len(REVERSE_SKETCHES) and selected_reverse_sketch:
+        # Generate the selected group.
+        selected_group = generate_new_sketches(selected_reverse_sketch)
+        # Trees that have the selection option in the selected hole. 
         new_trees = selected_reverse_sketch.recover_groups(hole_num, selected_group)
         # Create new reverse sketches.
         _, new_reverse_sketches = trees_uppper_bounds(new_trees)
@@ -647,23 +957,29 @@ def update_hole(sketch_id, hole_num, option_num):
         new_reverse_sketch = new_reverse_sketches[0]
         # Generate JSON representation of the new reverse sketch. 
         new_reverse_sketch_json = new_reverse_sketch.generate_json()
+        # Generate a clickable sketch of the new sketch. 
+        clickable_new_reverse_sketch = createClickableSketch(host, version, new_reverse_sketch_json['id'], new_reverse_sketch_json['sketch_str'])
+        # Pretty print the children. 
+        print("New clickable reverse sketch: ", clickable_new_reverse_sketch)
+        # pretty_print_children()
         # Update the sketch history array by adding the current sketches 
         REVERSE_SKETCHES_HISTORY.extend([obj.generate_json() for obj in new_reverse_sketches])
         # Update the sketch history array by adding the current sketches Reverse Sketch class instance.  
         REVERSE_SKETCHES_HISTORY_OBJS.extend([obj for obj in new_reverse_sketches])
         # Exrend the list Reverse Sketch class instances.  
         REVERSE_SKETCHES_OBJS = [obj for obj in new_reverse_sketches]
-        # Exrend the list of JSON objects that represent reverse sketches. 
+        # Extend the list of JSON objects that represent reverse sketches. 
         REVERSE_SKETCHES = [obj.generate_json() for obj in new_reverse_sketches]
-        # TODO (fix): Generate a color map. 
         color_dict = dict()
         for tree in new_reverse_sketch.trees: 
             color_dict[ast.unparse(tree)] = COLORS[0]
         # Return the new skecth with programs that match it. 
         return render_template("options.html",
-                selected_sketch=createClickableSketch(host, version, new_reverse_sketch_json['id'], new_reverse_sketch_json['sketch_str']),
+                selected_sketch=clickable_new_reverse_sketch,
                 options_len=0, 
                 options=[], 
+                prev_options_len=0,
+                prev_options=PREVIOUS_OPTIONS,
                 len=len(new_reverse_sketch.trees), 
                 programs=color_dict, 
                 colors=COLORS, 
