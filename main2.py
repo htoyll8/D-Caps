@@ -9,7 +9,7 @@ from flask import Flask, jsonify, abort, make_response, render_template
 
 # TODO: Turn into a classes. 
 ID_COUNTER = 0
-COLORS = ["#ccf1ff", "#E0D7FF", "#FFCCE1", "#D7EEFF", "#FAFFC7", "ffe5ec", "ffc2d1", "ffcaaf", "f1ffc4"]
+COLORS = ["#ccf1ff", "#E0D7FF", "#FFCCE1", "#FAFFC7", "#ffcaaf", "#f1ffc4"]
 
 class ReverseSketch:
     def __init__(self, sketch_id, sketch_AST, trees, holes, substitutions):
@@ -245,14 +245,15 @@ def group_trees_by_type(trees: list[ast.AST]) -> list[list[ast.AST]]:
     for tree in trees:
         # Parse body. 
         if (isinstance(tree, ast.Module)):
-            print("Dictionary: ", tree.__dict__)
             if isinstance(tree.body[0], ast.FunctionDef):
                 body: ast.AST = tree.body[0]
-                print("Function body: ", body)
+                print("Body: ", body, body.__dict__)
+                function_name: str = body.__dict__['name']
                 expr = body
             else:
                 body: ast.AST = tree.body[0]
                 expr = body.__dict__['value']
+                print("Expr: ", body.__dict__, body.__dict__['value'])
         else:
             expr = tree
 
@@ -260,6 +261,8 @@ def group_trees_by_type(trees: list[ast.AST]) -> list[list[ast.AST]]:
             typed_lists.setdefault(f"Name-{ast.unparse(expr)}", []).append(tree) 
         elif (isinstance(expr, ast.Constant)):  
             typed_lists.setdefault(f"Constant-{ast.unparse(expr)}", []).append(tree) 
+        elif (isinstance(expr, ast.FunctionDef)):  
+            typed_lists.setdefault(f"Function-{function_name}", []).append(tree) 
         elif (isinstance(expr, ast.BinOp)):
             typed_lists.setdefault(ast.BinOp, []).append(tree) 
         elif (isinstance(expr, ast.Index)):
@@ -316,6 +319,7 @@ def antiunfy(trees):
                 compare_trees(tups[0], list(tups[1:]), del_dict)
 
         # Return statement. 
+        print("Del dictionary: ", del_dict)
         return del_dict
 
     '''
@@ -423,14 +427,9 @@ Read Python programs from a file.
 '''
 def read_multi_line_trees():
     multi_line_trees = [
-        """def foo():
-        print("hello world")
-        print("Working hard...")
-        return 5
-        """, 
-        """def boo():
-        return 6
-        """
+        """def foo(): print("hello world"); print("Working hard..."); return 5""", 
+        """def foo(): return 6""",
+        "print('lol')"
     ]
     trees = [ast.parse(tree) for tree in multi_line_trees]
     dumped = [ast.dump(tree) for tree in trees]
@@ -620,10 +619,15 @@ Print nested children.
 @param 
 @return.
 '''
-def generate_navigation(overview, html_overview = ""):
+def generate_navigation(overview, selected_sketch, html_overview = ""):
     html_overview = ""
     for family_tree in overview: 
-        html_overview += f"<li class='list-item'><span class='caret'>{family_tree['name']}</span>"
+        # html_overview += f"<li class='list-item'><span class='caret'>{family_tree['name']}</span>"
+        # Add the selectd class to the selected sketch. 
+        if family_tree['name'] == selected_sketch:
+            html_overview += f'</td><td><li class="list-item selected"><span class="caret">{family_tree["name"]}</span></td><td>'
+        else:
+            html_overview += f'</td><td><li class="list-item"><span class="caret">{family_tree["name"]}</span></td><td>'
         if family_tree['children']:
             html_overview += f"<ul class='nested'>"
             for child in family_tree['children']:
@@ -633,6 +637,61 @@ def generate_navigation(overview, html_overview = ""):
                     html_overview += generate_navigation([child], "")
             html_overview += "</ul>"
         html_overview += "</li>"
+    return html_overview
+
+def generate_navigation2(overview, html_overview = "<div id='wrapper'><span class='label'>Root</span><div class='branch lv1'>"):
+    # html_overview = ""
+    for family_tree in overview: 
+        # Add the ul. 
+        html_overview += f"<div class='entry'><span class='label'>{family_tree['name']}</span>"
+        if family_tree['children']:
+            html_overview += '<div class="branch">'
+            for child in family_tree['children']:
+                if isinstance(child, list):
+                    html_overview += generate_navigation2(child, "")
+                else: 
+                    html_overview += generate_navigation2([child], "")
+            html_overview += "</div>"
+        html_overview += "</div>"
+    return html_overview
+
+def generate_navigation3(overview, selected_sketch, color_map, color_children = False, color_count = None, direct_children = [], html_overview = "<div class='tree'><ul>"):
+    for family_tree in overview: 
+        if family_tree['name'] == selected_sketch:
+            html_overview += "<li class='selected'>"
+        else:
+            html_overview += "<li>"
+        if (color_children and (family_tree in direct_children)):
+            print("Color count: ", color_count, color_map)
+            html_overview += f"<span style=background-color:{list(color_map.values())[color_count]};>{family_tree['name']}</span>"
+        else:
+            html_overview += f"<span>{family_tree['name']}</span>"
+        # If the current sketch has children... 
+        if family_tree['children']:
+            if family_tree['name'] == selected_sketch:
+                color_children = True
+                direct_children = family_tree['children']
+            else:
+                direct_children = []
+            # Always reset the children counter to zero. 
+            children_counter = 0
+            html_overview += '<ul>'
+            for child in family_tree['children']:
+                if isinstance(child, list):
+                    generated_nav = generate_navigation3(child, selected_sketch, color_map, color_children, children_counter, direct_children, "")
+                    html_overview += generated_nav
+                else: 
+                    generated_nav = generate_navigation3([child], selected_sketch, color_map, color_children, children_counter, direct_children, "")
+                    html_overview += generated_nav
+                #  Update the color count. 
+                if color_children: 
+                    children_counter += 1
+            if color_children:
+                print("Children count: ", children_counter)
+                color_children = False
+            html_overview += "</ul>"
+        html_overview += "</li>"
+        # html_overview += "</ul>"
     return html_overview
 
 # Routes.
@@ -647,6 +706,7 @@ def get_sketches():
         host = "http://127.0.0.1:5000/"
         # ASTs that represent the candidate programs.
         trees = read_trees("ex-input.txt")
+        # trees = read_multi_line_trees()
         # Version 
         version = "v1.0"
         # Generate the reverse sketches. 
@@ -770,6 +830,7 @@ def get_hole(sketch_id, hole_id):
                 # Update hte counters for the hole options and the colors. 
                 key_counter += 1
                 color_counter += 1
+        print("Color key map: ", color_key_map)
         return color_key_map, color_value_map
 
     # Host link.
@@ -797,12 +858,15 @@ def get_hole(sketch_id, hole_id):
         # Update the selected sketch's children attribute. 
         selected_reverse_sketch.update_children(new_reverse_sketches_id)
         # Generate a color map. 
-        _, color_value_map = generate_color_map(selected_reverse_sketch, hole_num=hole_id)
+        color_key_map, color_value_map = generate_color_map(selected_reverse_sketch, hole_num=hole_id)
         # Pretty print the entire space of programs. 
         overview_tree = pretty_print_children()
+        
+        # Primary. 
         # Generate a nested HTML.
-        html_overview = generate_navigation(overview_tree)
-        print("Html overview: ", html_overview)
+        html_overview = generate_navigation3(overview_tree, selected_reverse_sketch.clickable_sketch, color_key_map)
+        html_overview += "</ul></div>"
+        print("Html overview: ", html_overview)    
         return render_template("options.html", 
                 selected_sketch=createClickableSketch2(host, version, sketch_id, selected_reverse_sketch_json['sketch_str'], hole_id),
                 # options_len=len(clickable_options), 
@@ -817,6 +881,24 @@ def get_hole(sketch_id, hole_id):
                 history_len=len(REVERSE_SKETCHES_ORIGINAL),
                 prev_sketches=updateJsonStringReps(host, version, REVERSE_SKETCHES_ORIGINAL),
                 overview=html_overview)
+
+        # Horizontal tree
+        # html_overview = generate_navigation2(overview_tree)
+        # html_overview += "</div></div>"
+        # return render_template("dump2.html", 
+        #         selected_sketch=createClickableSketch2(host, version, sketch_id, selected_reverse_sketch_json['sketch_str'], hole_id),
+        #         # options_len=len(clickable_options), 
+        #         # options=clickable_options, 
+        #         options_len=len(filled_spaced_options), 
+        #         options=filled_spaced_options, 
+        #         prev_options_len=len(PREVIOUS_OPTIONS),
+        #         prev_options=PREVIOUS_OPTIONS,
+        #         len=len(selected_reverse_sketch.trees), 
+        #         programs=color_value_map, 
+        #         colors=COLORS, 
+        #         history_len=len(REVERSE_SKETCHES_ORIGINAL),
+        #         prev_sketches=updateJsonStringReps(host, version, REVERSE_SKETCHES_ORIGINAL),
+        #         overview=html_overview)
 
 # TODO: Change to PUT
 @app.route('/oversynth/api/v1.0/sketches/<int:sketch_id>/<int:hole_num>/<int:option_num>', methods=['GET'])
